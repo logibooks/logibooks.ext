@@ -75,7 +75,21 @@ function ensurePanel() {
     closeButton.style.color = "#666";
   });
   closeButton.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "HIDE_UI" });
+    // Hide locally to avoid UI being stuck if the message fails.
+    togglePanel(false);
+
+    try {
+      chrome.runtime.sendMessage({ type: "HIDE_UI" }, () => {
+        if (chrome.runtime.lastError) {
+          // Log the error and ensure the panel stays hidden locally.
+          console.error("Failed to send HIDE_UI message:", chrome.runtime.lastError);
+          togglePanel(false);
+        }
+      });
+    } catch (error) {
+      console.error("Exception while sending HIDE_UI message:", error);
+      togglePanel(false);
+    }
   });
 
   panel.appendChild(closeButton);
