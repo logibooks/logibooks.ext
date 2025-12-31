@@ -1,90 +1,223 @@
+import { getJobAt, normalizeJobsResponse } from "./workflow.js";
+
 const API_BASE = "http://localhost:5177";
 const ALLOW_LIST = [
-  "http://localhost:5177/"
+  "http://localhost:5177/",
+  "<all_urls>"
 ];
 
-let running = false;
-let workerTabId = null;
+const state = {
+  status: "idle",
+  jobs: [],
+  index: 0,
+  tabId: null
+};
 
-chrome.action.onClicked.addListener(async () => {
-  if (running) return;
-  running = true;
+let isUiVisible = true;
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id) return;
+  isUiVisible = !isUiVisible;
+  
   try {
-    await runLoop();
-  } catch (e) {
-    console.error(e);
-  } finally {
-    running = false;
+    await chrome.tabs.sendMessage(tab.id, { 
+      type: "TOGGLE_UI", 
+      visible: isUiVisible 
+    });
+  } catch (error) {
+    console.error("Failed to toggle UI:", error);
   }
 });
 
-async function runLoop() {
-  workerTabId = workerTabId ?? (await chrome.tabs.create({ url: "about:blank", active: true })).id;
-  const currentWorkerTabId = workerTabId;
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg?.type) return;
 
-  try {
-    while (true) {
-      const next = await apiGetNext();
-      if (next.end) {
-        console.log("End marker received. Stopping.");
-        break;
-      }
+  if (msg.type === "UI_START") {
+    if (state.status !== "idle") return;
+    const tabId = sender.tab?.id;
+    if (tabId == null) return;
+    void startWorkflow(tabId);
+  }
 
-      if (!isAllowed(next.url)) {
-        console.warn("Blocked URL (not in allow-list):", next.url);
-        // You can POST an error back to the server here if you want.
-        continue;
-      }
+  if (msg.type === "UI_SAVE") {
+    if (state.status !== "awaiting_selection") return;
+    if (sender.tab?.id !== state.tabId) return;
+    void handleSave(msg.rect);
+  }
 
-      await navigate(currentWorkerTabId, next.url);
+  if (msg.type === "UI_CANCEL") {
+    if (sender.tab?.id !== state.tabId) return;
+    void resetState("Готово", true);
+  }
 
-      // Ask user to select a rectangle on the visible area.
-      const rect = await requestUserSelection(currentWorkerTabId);
+  if (msg.type === "UI_READY") {
+    const tabId = sender.tab?.id;
+    if (tabId == null) return;
+    void syncUiState(tabId);
+  }
 
-      // Capture and crop.
-      const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: "png" });
-      const blob = await cropDataUrl(dataUrl, rect);
+  if (msg.type === "HIDE_UI") {
+    isUiVisible = false;
+    void broadcastUiVisibility();
+  }
+});
 
-      // Upload.
-      await apiUpload(next, rect, blob);
-
-      console.log("Uploaded:", next.id);
-    }
-  } finally {
-    if (currentWorkerTabId !== null && currentWorkerTabId !== undefined) {
-      try {
-        await chrome.tabs.remove(currentWorkerTabId);
-      } catch (e) {
-        console.warn("Failed to remove worker tab", currentWorkerTabId, e);
-      }
-    }
-
-   if (workerTabId === currentWorkerTabId) {
-      workerTabId = null;
+async function broadcastUiVisibility() {
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.tabs.sendMessage(tab.id, { 
+        type: "TOGGLE_UI", 
+        visible: isUiVisible 
+      });
+    } catch (error) {
+      // Tab may not have content script loaded
     }
   }
+}
+
+async function startWorkflow(tabId) {
+  state.status = "fetching";
+  state.tabId = tabId;
+  state.index = 0;
+  state.jobs = [];
+
+  try {
+    notifyState(tabId, "idle", "Загрузка списка...");
+    const jobs = normalizeJobsResponse(await apiGetJobs());
+    if (jobs.length === 0) {
+      throw new Error("Нет URL для обработки");
+    }
+    state.jobs = jobs;
+    state.status = "navigating";
+    await processCurrentJob();
+  } catch (error) {
+    await reportError(error, tabId);
+  }
+}
+
+async function processCurrentJob() {
+  const job = getJobAt(state.jobs, state.index);
+  if (!job) {
+    await resetState("Готово", true);
+    return;
+  }
+
+  if (!isAllowed(job.url)) {
+    throw new Error(`URL не разрешен: ${job.url}`);
+  }
+
+  await navigate(state.tabId, job.url);
+  state.status = "awaiting_selection";
+  await sendMessageWithRetry(state.tabId, { type: "START_SELECT" });
+  notifyState(state.tabId, "selecting", "Выберите область и нажмите Сохранить");
+}
+
+async function handleSave(rect) {
+  try {
+    state.status = "uploading";
+    const job = getJobAt(state.jobs, state.index);
+    if (!job) {
+      throw new Error("Текущее задание не найдено");
+    }
+
+    const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: "png" });
+    const blob = await cropDataUrl(dataUrl, rect);
+    await apiUpload(job, rect, blob);
+
+    state.index += 1;
+    await processCurrentJob();
+  } catch (error) {
+    await reportError(error, state.tabId);
+  }
+}
+
+async function resetState(message, notify) {
+  state.status = "idle";
+  state.jobs = [];
+  state.index = 0;
+
+  if (notify && state.tabId !== null && state.tabId !== undefined) {
+    await sendMessageWithRetry(state.tabId, { type: "RESET_SELECTION", message });
+    notifyState(state.tabId, "idle", message);
+  }
+  state.tabId = null;
+}
+
+async function reportError(error, tabId) {
+  console.error(error);
+  const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+  if (tabId !== null && tabId !== undefined) {
+    await sendMessageWithRetry(tabId, { type: "RESET_SELECTION", message });
+    notifyState(tabId, "idle", message);
+  }
+  state.status = "idle";
+  state.jobs = [];
+  state.index = 0;
+  state.tabId = null;
+}
+
+async function syncUiState(tabId) {
+  if (state.status === "awaiting_selection") {
+    await sendMessageWithRetry(tabId, { type: "START_SELECT" });
+    notifyState(tabId, "selecting", "Выберите область и нажмите Сохранить");
+  } else {
+    notifyState(tabId, "idle", "Готово");
+  }
+}
+
+function notifyState(tabId, stateName, message) {
+  if (tabId === null || tabId === undefined) return;
+  chrome.tabs.sendMessage(tabId, { type: "UI_STATE", state: stateName, message }, () => {
+    if (chrome.runtime.lastError) {
+      // Content script may not be ready yet; ignore.
+    }
+  });
+}
+
+async function sendMessageWithRetry(tabId, message, attempts = 10) {
+  for (let i = 0; i < attempts; i += 1) {
+    const success = await sendMessageOnce(tabId, message);
+    if (success) {
+      return true;
+    }
+    await delay(200);
+  }
+  return false;
+}
+
+function sendMessageOnce(tabId, message) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, message, () => {
+      resolve(!chrome.runtime.lastError);
+    });
+  });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isAllowed(url) {
   try {
     const urlObj = new URL(url);
-    
-    // Only allow http and https protocols
+
     if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
       return false;
     }
-    
-    // Check if the URL's origin and path match any allowed entry
-    return ALLOW_LIST.some(allowed => {
+
+    // If ALLOW_LIST explicitly contains the wildcard, accept any http(s) origin
+    if (ALLOW_LIST.includes("<all_urls>")) return true;
+
+    return ALLOW_LIST.some((allowed) => {
       try {
         const allowedObj = new URL(allowed);
-        
-        // Compare origins (protocol + hostname + port)
+
         if (urlObj.origin !== allowedObj.origin) {
           return false;
         }
-        
-        // If the allowed entry has a path, ensure the URL's path starts with it
+
         const allowedPath = allowedObj.pathname;
         return urlObj.pathname.startsWith(allowedPath);
       } catch {
@@ -96,18 +229,18 @@ function isAllowed(url) {
   }
 }
 
-async function apiGetNext() {
-  const r = await fetch(`${API_BASE}/next`, { method: "GET" });
-  if (!r.ok) throw new Error(`GET /next failed: ${r.status}`);
-  return await r.json(); // { end: boolean, id, url }
+async function apiGetJobs() {
+  const r = await fetch(`${API_BASE}/jobs`, { method: "GET" });
+  if (!r.ok) throw new Error(`GET /jobs failed: ${r.status}`);
+  return await r.json();
 }
 
-async function apiUpload(next, rect, blob) {
+async function apiUpload(job, rect, blob) {
   const fd = new FormData();
-  fd.append("id", next.id);
-  fd.append("url", next.url);
+  fd.append("id", job.id);
+  fd.append("url", job.url);
   fd.append("rect", JSON.stringify(rect));
-  fd.append("image", blob, `snap-${next.id}.png`);
+  fd.append("image", blob, `snap-${job.id}.png`);
 
   const r = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd });
   if (!r.ok) throw new Error(`POST /upload failed: ${r.status}`);
@@ -131,47 +264,12 @@ function navigate(tabId, url) {
         settled = true;
         clearTimeout(timeout);
         chrome.tabs.onUpdated.removeListener(listener);
-        setTimeout(resolve, 250); // small settle delay
+        setTimeout(resolve, 250);
       }
     }
 
     chrome.tabs.onUpdated.addListener(listener);
     chrome.tabs.update(tabId, { url, active: true });
-  });
-}
-
-function requestUserSelection(tabId) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      chrome.runtime.onMessage.removeListener(onMsg);
-      // Tell the content script to clean up the selection UI on timeout
-      chrome.tabs.sendMessage(tabId, { type: "CANCEL_SELECT" });
-      reject(new Error("User selection timeout"));
-    }, 10 * 60 * 1000);
-
-    chrome.tabs.sendMessage(tabId, { type: "START_SELECT" });
-
-    function onMsg(msg, sender) {
-      if (settled) return;
-      if (sender.tab?.id !== tabId) return;
-      if (msg?.type === "RECT_SELECTED") {
-        settled = true;
-        clearTimeout(timeout);
-        chrome.runtime.onMessage.removeListener(onMsg);
-        resolve(msg.rect); // device-pixel rect: {x,y,w,h}
-      } else if (msg?.type === "RECT_CANCEL") {
-        settled = true;
-        clearTimeout(timeout);
-        chrome.runtime.onMessage.removeListener(onMsg);
-        reject(new Error("User cancelled selection"));
-      }
-    }
-
-    chrome.runtime.onMessage.addListener(onMsg);
   });
 }
 
@@ -194,13 +292,31 @@ async function cropDataUrl(dataUrl, rect) {
   return await canvas.convertToBlob({ type: "image/png" });
 }
 
-function loadImage(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
+async function loadImage(dataUrl) {
+  let blob;
+  if (typeof dataUrl === "string" && dataUrl.startsWith("data:")) {
+    const comma = dataUrl.indexOf(",");
+    const header = dataUrl.substring(0, comma);
+    const data = dataUrl.substring(comma + 1);
+    const isBase64 = header.indexOf("base64") !== -1;
+    const mimeMatch = header.match(/data:([^;]+)[;]?/);
+    const mime = mimeMatch ? mimeMatch[1] : "application/octet-stream";
+    if (isBase64) {
+      const binary = atob(data);
+      const len = binary.length;
+      const u8 = new Uint8Array(len);
+      for (let i = 0; i < len; i += 1) u8[i] = binary.charCodeAt(i);
+      blob = new Blob([u8], { type: mime });
+    } else {
+      blob = new Blob([decodeURIComponent(data)], { type: mime });
+    }
+  } else {
+    const res = await fetch(dataUrl);
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+    blob = await res.blob();
+  }
+
+  return await createImageBitmap(blob);
 }
 
 function clamp(v, lo, hi) {

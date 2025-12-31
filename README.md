@@ -1,4 +1,5 @@
-# techdoc.exe
+# logibooks.ext
+
 Chrome extension to support documentation generator
 
 A Chrome Manifest V3 extension that:
