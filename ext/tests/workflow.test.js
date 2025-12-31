@@ -22,6 +22,8 @@ test("normalizeJobsResponse throws when payload is invalid", () => {
 
 test("normalizeJobsResponse throws when job url is missing", () => {
   assert.throws(() => normalizeJobsResponse({ jobs: [{}] }), /Invalid job url/);
+  assert.throws(() => normalizeJobsResponse({ jobs: [{ url: "" }] }), /Invalid job url/);
+  assert.throws(() => normalizeJobsResponse({ jobs: [{ url: "   " }] }), /Invalid job url/);
 });
 
 test("getJobAt returns job or null", () => {

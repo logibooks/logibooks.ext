@@ -30,7 +30,7 @@ function ensurePanel() {
     position: fixed;
     top: 16px;
     right: 16px;
-    z-index: 2147483647;
+    z-index: 2147483648;
     background: #fff;
     border: 1px solid #ccc;
     border-radius: 8px;
@@ -84,9 +84,9 @@ function ensurePanel() {
 
 function setUiState(state, message) {
   uiState = state;
-  if (message) statusLabel.textContent = message;
 
   if (state === UI_STATE.IDLE) {
+    if (message) statusLabel.textContent = message;
     startButton.style.display = "inline-flex";
     saveButton.style.display = "none";
     cancelButton.style.display = "none";
@@ -99,7 +99,9 @@ function setUiState(state, message) {
     saveButton.style.display = "inline-flex";
     cancelButton.style.display = "inline-flex";
     saveButton.disabled = !selectedRect;
-    if (!message) {
+    if (message) {
+      statusLabel.textContent = message;
+    } else {
       statusLabel.textContent = "Выберите область";
     }
   }
@@ -200,6 +202,7 @@ function startSelection() {
     if (w < 5 || h < 5) {
       selectedRect = null;
       saveButton.disabled = true;
+      cleanupSelection();
       return;
     }
 
@@ -211,6 +214,7 @@ function startSelection() {
       h: Math.round(h * dpr)
     };
     saveButton.disabled = false;
+    cleanupSelection();
   };
 
   document.addEventListener("mouseup", mouseupHandler);

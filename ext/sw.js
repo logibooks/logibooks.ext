@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "UI_START") {
     if (state.status !== "idle") return;
     const tabId = sender.tab?.id;
-    if (!tabId && tabId !== 0) return;
+    if (tabId == null) return;
     void startWorkflow(tabId);
   }
 
@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 
   if (msg.type === "UI_READY") {
     const tabId = sender.tab?.id;
-    if (!tabId && tabId !== 0) return;
+    if (tabId == null) return;
     void syncUiState(tabId);
   }
 });
@@ -105,6 +105,7 @@ async function resetState(message, notify) {
     await sendMessageWithRetry(state.tabId, { type: "RESET_SELECTION", message });
     notifyState(state.tabId, "idle", message);
   }
+  state.tabId = null;
 }
 
 async function reportError(error, tabId) {
@@ -117,6 +118,7 @@ async function reportError(error, tabId) {
   state.status = "idle";
   state.jobs = [];
   state.index = 0;
+  state.tabId = null;
 }
 
 async function syncUiState(tabId) {
@@ -140,9 +142,12 @@ function notifyState(tabId, stateName, message) {
 async function sendMessageWithRetry(tabId, message, attempts = 10) {
   for (let i = 0; i < attempts; i += 1) {
     const success = await sendMessageOnce(tabId, message);
-    if (success) return;
+    if (success) {
+      return true;
+    }
     await delay(200);
   }
+  return false;
 }
 
 function sendMessageOnce(tabId, message) {
