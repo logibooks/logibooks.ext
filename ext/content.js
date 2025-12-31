@@ -24,7 +24,7 @@ let uiState = UI_STATE.IDLE;
 
 function togglePanel(visible) {
   if (panel) {
-    panel.style.display = visible ? 'flex' : 'none';
+    panel.style.display = visible ? "flex" : "none";
   }
 }
 
