@@ -120,6 +120,8 @@ function requestUserSelection(tabId) {
       if (settled) return;
       settled = true;
       chrome.runtime.onMessage.removeListener(onMsg);
+      // Tell the content script to clean up the selection UI on timeout
+      chrome.tabs.sendMessage(tabId, { type: "CANCEL_SELECT" });
       reject(new Error("User selection timeout"));
     }, 10 * 60 * 1000);
 
