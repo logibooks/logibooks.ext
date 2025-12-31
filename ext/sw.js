@@ -194,13 +194,35 @@ async function cropDataUrl(dataUrl, rect) {
   return await canvas.convertToBlob({ type: "image/png" });
 }
 
-function loadImage(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
+async function loadImage(dataUrl) {
+  // Service workers don't have `Image`/DOM. Use createImageBitmap instead.
+  // Support both data: URLs and remote URLs.
+  let blob;
+  if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+    const comma = dataUrl.indexOf(',');
+    const header = dataUrl.substring(0, comma);
+    const data = dataUrl.substring(comma + 1);
+    const isBase64 = header.indexOf('base64') !== -1;
+    const mimeMatch = header.match(/data:([^;]+)[;]?/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    if (isBase64) {
+      const binary = atob(data);
+      const len = binary.length;
+      const u8 = new Uint8Array(len);
+      for (let i = 0; i < len; i++) u8[i] = binary.charCodeAt(i);
+      blob = new Blob([u8], { type: mime });
+    } else {
+      blob = new Blob([decodeURIComponent(data)], { type: mime });
+    }
+  } else {
+    const res = await fetch(dataUrl);
+    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+    blob = await res.blob();
+  }
+
+  // createImageBitmap is available in workers and returns an ImageBitmap
+  // which works with OffscreenCanvas.drawImage
+  return await createImageBitmap(blob);
 }
 
 function clamp(v, lo, hi) {
