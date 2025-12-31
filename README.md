@@ -61,6 +61,8 @@ The extension will now appear in your extensions list and toolbar.
 
 ## Using the extension
 
+**Note:** Make sure the simulation server is running before using the extension.
+
 1. **Click the extension icon** in your Chrome toolbar
 2. The extension will:
    - Open or reuse a worker tab
@@ -69,5 +71,3 @@ The extension will now appear in your extensions list and toolbar.
    - Capture and crop the selected area
    - Upload the cropped PNG to the server (`sim-server/uploads/`)
    - Repeat until the server sends an end marker
-
-**Note:** Make sure the simulation server is running before using the extension
