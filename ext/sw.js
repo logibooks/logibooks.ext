@@ -15,9 +15,35 @@ const state = {
 
 let isUiVisible = true;
 
+// Initialize UI visibility state from storage
+async function initializeUiVisibility() {
+  try {
+    const result = await chrome.storage.local.get(["isUiVisible"]);
+    if (result.isUiVisible !== undefined) {
+      isUiVisible = result.isUiVisible;
+    }
+  } catch (error) {
+    console.error("Failed to load UI visibility state:", error);
+  }
+}
+
+// Save UI visibility state to storage
+async function saveUiVisibility(visible) {
+  isUiVisible = visible;
+  try {
+    await chrome.storage.local.set({ isUiVisible: visible });
+  } catch (error) {
+    console.error("Failed to save UI visibility state:", error);
+  }
+}
+
+// Initialize on service worker startup
+initializeUiVisibility();
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
-  isUiVisible = !isUiVisible;
+  const newVisibility = !isUiVisible;
+  await saveUiVisibility(newVisibility);
   
   try {
     await chrome.tabs.sendMessage(tab.id, { 
@@ -53,12 +79,25 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "UI_READY") {
     const tabId = sender.tab?.id;
     if (tabId == null) return;
-    void syncUiState(tabId);
+    void (async () => {
+      await syncUiState(tabId);
+      // Send current visibility state to the newly loaded content script
+      try {
+        await chrome.tabs.sendMessage(tabId, { 
+          type: "TOGGLE_UI", 
+          visible: isUiVisible 
+        });
+      } catch (error) {
+        // Content script may not be ready yet
+      }
+    })();
   }
 
   if (msg.type === "HIDE_UI") {
-    isUiVisible = false;
-    void broadcastUiVisibility();
+    void (async () => {
+      await saveUiVisibility(false);
+      await broadcastUiVisibility();
+    })();
   }
 });
 
