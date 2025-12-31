@@ -30,7 +30,7 @@ function ensurePanel() {
     position: fixed;
     top: 16px;
     right: 16px;
-    z-index: 2147483648;
+    z-index: 2147483647;
     background: #fff;
     border: 1px solid #ccc;
     border-radius: 8px;
@@ -86,7 +86,7 @@ function setUiState(state, message) {
   uiState = state;
 
   if (state === UI_STATE.IDLE) {
-    if (message) statusLabel.textContent = message;
+    statusLabel.textContent = message || "Готово";
     startButton.style.display = "inline-flex";
     saveButton.style.display = "none";
     cancelButton.style.display = "none";
@@ -95,15 +95,11 @@ function setUiState(state, message) {
   }
 
   if (state === UI_STATE.SELECTING) {
+    statusLabel.textContent = message || "Выберите область";
     startButton.style.display = "none";
     saveButton.style.display = "inline-flex";
     cancelButton.style.display = "inline-flex";
     saveButton.disabled = !selectedRect;
-    if (message) {
-      statusLabel.textContent = message;
-    } else {
-      statusLabel.textContent = "Выберите область";
-    }
   }
 }
 
