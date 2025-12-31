@@ -9,7 +9,8 @@ function cleanup() {
     if (mouseupHandler) overlay.removeEventListener("mouseup", mouseupHandler);
     overlay.remove();
   }
-  overlay = box = null;
+  overlay = null;
+  box = null;
   keydownHandler = null;
   mousedownHandler = null;
   mousemoveHandler = null;
