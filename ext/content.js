@@ -1,8 +1,20 @@
 let overlay, box, startX, startY, selecting = false;
+let keydownHandler, mousedownHandler, mousemoveHandler, mouseupHandler;
 
 function cleanup() {
-  overlay?.remove();
-  overlay = box = null;
+  if (overlay) {
+    if (keydownHandler) overlay.removeEventListener("keydown", keydownHandler);
+    if (mousedownHandler) overlay.removeEventListener("mousedown", mousedownHandler);
+    if (mousemoveHandler) overlay.removeEventListener("mousemove", mousemoveHandler);
+    if (mouseupHandler) overlay.removeEventListener("mouseup", mouseupHandler);
+    overlay.remove();
+  }
+  overlay = null;
+  box = null;
+  keydownHandler = null;
+  mousedownHandler = null;
+  mousemoveHandler = null;
+  mouseupHandler = null;
   selecting = false;
 }
 
@@ -28,14 +40,16 @@ function startSelection() {
   overlay.tabIndex = -1;
   overlay.focus();
 
-  overlay.addEventListener("keydown", (e) => {
+  keydownHandler = (e) => {
     if (e.key === "Escape") {
       cleanup();
       chrome.runtime.sendMessage({ type: "RECT_CANCEL" });
     }
-  });
+  };
 
-  overlay.addEventListener("mousedown", (e) => {
+  overlay.addEventListener("keydown", keydownHandler);
+
+  mousedownHandler = (e) => {
     selecting = true;
     startX = e.clientX;
     startY = e.clientY;
@@ -44,9 +58,11 @@ function startSelection() {
     box.style.width = "0px";
     box.style.height = "0px";
     e.preventDefault();
-  });
+  };
 
-  overlay.addEventListener("mousemove", (e) => {
+  overlay.addEventListener("mousedown", mousedownHandler);
+
+  mousemoveHandler = (e) => {
     if (!selecting) return;
     const x1 = Math.min(startX, e.clientX);
     const y1 = Math.min(startY, e.clientY);
@@ -57,9 +73,11 @@ function startSelection() {
     box.style.width = `${x2 - x1}px`;
     box.style.height = `${y2 - y1}px`;
     e.preventDefault();
-  });
+  };
 
-  overlay.addEventListener("mouseup", (e) => {
+  overlay.addEventListener("mousemove", mousemoveHandler);
+
+  mouseupHandler = (e) => {
     if (!selecting) return;
     selecting = false;
 
@@ -88,7 +106,9 @@ function startSelection() {
         h: Math.round(h * dpr)
       }
     });
-  });
+  };
+
+  overlay.addEventListener("mouseup", mouseupHandler);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
