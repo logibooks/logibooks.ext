@@ -99,7 +99,11 @@ function navigate(tabId, url) {
 
 function requestUserSelection(tabId) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+
     const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
       chrome.runtime.onMessage.removeListener(onMsg);
       reject(new Error("User selection timeout"));
     }, 10 * 60 * 1000);
@@ -107,12 +111,15 @@ function requestUserSelection(tabId) {
     chrome.tabs.sendMessage(tabId, { type: "START_SELECT" });
 
     function onMsg(msg, sender) {
+      if (settled) return;
       if (sender.tab?.id !== tabId) return;
       if (msg?.type === "RECT_SELECTED") {
+        settled = true;
         clearTimeout(timeout);
         chrome.runtime.onMessage.removeListener(onMsg);
         resolve(msg.rect); // device-pixel rect: {x,y,w,h}
       } else if (msg?.type === "RECT_CANCEL") {
+        settled = true;
         clearTimeout(timeout);
         chrome.runtime.onMessage.removeListener(onMsg);
         reject(new Error("User cancelled selection"));
