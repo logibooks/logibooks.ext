@@ -25,8 +25,7 @@ async function initializeUiVisibility() {
     if (result.isUiVisible !== undefined) {
       isUiVisible = result.isUiVisible;
     }
-  } catch (error) {
-    console.error("Failed to load UI visibility state:", error);
+  } catch {
   }
 }
 
@@ -35,8 +34,7 @@ async function saveUiVisibility(visible) {
   isUiVisible = visible;
   try {
     await chrome.storage.local.set({ isUiVisible: visible });
-  } catch (error) {
-    console.error("Failed to save UI visibility state:", error);
+  } catch {
   }
 }
 
@@ -49,12 +47,15 @@ chrome.action.onClicked.addListener(async (tab) => {
   await saveUiVisibility(newVisibility);
   
   try {
-    await chrome.tabs.sendMessage(tab.id, { 
-      type: "TOGGLE_UI", 
-      visible: isUiVisible 
-    });
-  } catch (error) {
-    console.error("Failed to toggle UI:", error);
+    if (newVisibility) {
+      await chrome.tabs.sendMessage(tab.id, { 
+        type: "SHOW_UI", 
+        message: "Выберите область"
+      });
+    } else {
+      await chrome.tabs.sendMessage(tab.id, { type: "HIDE_UI" });
+    }
+  } catch  {
   }
 });
 
@@ -84,18 +85,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg.type === "UI_READY") {
     const tabId = sender.tab?.id;
     if (tabId == null) return;
-    void (async () => {
-      await syncUiState(tabId);
-      // Send current visibility state to the newly loaded content script
-      try {
-        await chrome.tabs.sendMessage(tabId, { 
-          type: "TOGGLE_UI", 
-          visible: isUiVisible 
-        });
-      } catch (error) {
-        // Content script may not be ready yet
-      }
-    })();
+    void syncUiState(tabId);
   }
 
   if (msg.type === "HIDE_UI") {
@@ -111,27 +101,26 @@ async function broadcastUiVisibility() {
   for (const tab of tabs) {
     if (!tab.id) continue;
     try {
-      await chrome.tabs.sendMessage(tab.id, { 
-        type: "TOGGLE_UI", 
-        visible: isUiVisible 
-      });
-    } catch (error) {
+      await chrome.tabs.sendMessage(tab.id, { type: "HIDE_UI" });
+    } catch  {
       // Tab may not have content script loaded
     }
   }
 }
 
 async function handleActivation(tabId, returnUrl, payload) {
+  console.log("handleActivation", returnUrl, payload.url, payload.target);
+
   if (!payload?.url || typeof payload.url !== "string") {
-    await reportError(new Error("Invalid activation url"), tabId);
+    await reportError(new Error("Ошибка выбора страницы (1)"), tabId);
     return;
   }
-  if (!payload?.key || typeof payload.key !== "string") {
-    await reportError(new Error("Invalid activation key"), tabId);
+  if (!payload?.target || typeof payload.target !== "string") {
+    await reportError(new Error("Ошибка выбора страницы (2)"), tabId);
     return;
   }
   if (!returnUrl) {
-    await reportError(new Error("Missing return url"), tabId);
+    await reportError(new Error("Ошибка выбора страницы (3)"), tabId);
     return;
   }
   if (!isAllowed(payload.url)) {
@@ -143,17 +132,16 @@ async function handleActivation(tabId, returnUrl, payload) {
   state.tabId = tabId;
   state.returnUrl = returnUrl;
   state.targetUrl = payload.url;
-  state.uploadPrefix = payload.url;
-  state.key = payload.key;
+  state.target = payload.target;
 
   try {
-    notifyState(tabId, "idle", "Переход на страницу...");
     await navigate(tabId, payload.url);
     await saveUiVisibility(true);
-    await sendMessageWithRetry(tabId, { type: "TOGGLE_UI", visible: true });
     state.status = "awaiting_selection";
-    await sendMessageWithRetry(tabId, { type: "START_SELECT" });
-    notifyState(tabId, "selecting", "Выберите область и нажмите Сохранить");
+    await sendMessageWithRetry(tabId, { 
+      type: "SHOW_UI", 
+      message: "Выберите область"
+    });
   } catch (error) {
     await reportError(error, tabId);
   }
@@ -162,50 +150,44 @@ async function handleActivation(tabId, returnUrl, payload) {
 async function handleSave(rect) {
   try {
     state.status = "uploading";
-    if (!state.tabId || !state.uploadPrefix || !state.key) {
+    if (!state.tabId || !state.target) {
       throw new Error("Активная сессия не найдена");
     }
 
     const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: "png" });
     const blob = await cropDataUrl(dataUrl, rect);
-    await apiUpload(state.uploadPrefix, state.key, rect, blob);
-    await finishSession("Готово");
+    await apiUpload(state.target, rect, blob);
+    await finishSession();
   } catch (error) {
     await reportError(error, state.tabId);
   }
 }
 
 async function handleCancel() {
-  await finishSession("Готово");
+  await finishSession();
 }
 
-async function finishSession(message) {
+async function finishSession() {
   const { tabId, returnUrl } = state;
   await saveUiVisibility(false);
   if (tabId !== null && tabId !== undefined) {
-    await sendMessageWithRetry(tabId, { type: "TOGGLE_UI", visible: false });
+    await sendMessageWithRetry(tabId, { type: "HIDE_UI" });
   }
-  await resetState(message, true);
+  await resetState();
   if (tabId !== null && tabId !== undefined && returnUrl) {
     try {
       await navigate(tabId, returnUrl);
-    } catch (error) {
-      console.error("Failed to navigate back to return url:", error);
+    } catch  {
     }
   }
 }
 
-async function resetState(message, notify) {
+async function resetState() {
   state.status = "idle";
   state.returnUrl = null;
   state.targetUrl = null;
   state.uploadPrefix = null;
   state.key = null;
-
-  if (notify && state.tabId !== null && state.tabId !== undefined) {
-    await sendMessageWithRetry(state.tabId, { type: "RESET_SELECTION", message });
-    notifyState(state.tabId, "idle", message);
-  }
   state.tabId = null;
 }
 
@@ -213,8 +195,7 @@ async function reportError(error, tabId) {
   console.error(error);
   const message = error instanceof Error ? error.message : "Неизвестная ошибка";
   if (tabId !== null && tabId !== undefined) {
-    await sendMessageWithRetry(tabId, { type: "RESET_SELECTION", message });
-    notifyState(tabId, "idle", message);
+    await sendMessageWithRetry(tabId, { type: "SHOW_ERROR", message });
   }
   state.status = "idle";
   state.tabId = null;
@@ -225,24 +206,15 @@ async function reportError(error, tabId) {
 }
 
 async function syncUiState(tabId) {
-  if (state.status === "awaiting_selection") {
-    await sendMessageWithRetry(tabId, { type: "START_SELECT" });
-    notifyState(tabId, "selecting", "Выберите область и нажмите Сохранить");
-  } else {
-    notifyState(tabId, "idle", "Готово");
-  }
+  if (state.status === "awaiting_selection" || isUiVisible) {
+    await sendMessageWithRetry(tabId, { 
+      type: "SHOW_UI", 
+      message: "Выберите область"
+    });
+  } 
 }
 
-function notifyState(tabId, stateName, message) {
-  if (tabId === null || tabId === undefined) return;
-  chrome.tabs.sendMessage(tabId, { type: "UI_STATE", state: stateName, message }, () => {
-    if (chrome.runtime.lastError) {
-      // Content script may not be ready yet; ignore.
-    }
-  });
-}
-
-async function sendMessageWithRetry(tabId, message, attempts = 10) {
+async function sendMessageWithRetry(tabId, message, attempts = 3) {
   for (let i = 0; i < attempts; i += 1) {
     const success = await sendMessageOnce(tabId, message);
     if (success) {
@@ -250,14 +222,6 @@ async function sendMessageWithRetry(tabId, message, attempts = 10) {
     }
     await delay(200);
   }
-  console.warn(
-    "Failed to deliver message to tab after all retry attempts",
-    {
-      tabId,
-      attempts,
-      messageType: message && message.type ? message.type : undefined
-    }
-  );
   return false;
 }
 
@@ -303,14 +267,13 @@ function isAllowed(url) {
   }
 }
 
-async function apiUpload(prefix, key, rect, blob) {
+async function apiUpload(target, rect, blob) {
   const fd = new FormData();
   fd.append("rect", JSON.stringify(rect));
   fd.append("image", blob, `snap-${Date.now()}.png`);
 
-  const url = new URL(key, prefix).toString();
-  const r = await fetch(url, { method: "POST", body: fd });
-  if (!r.ok) throw new Error(`POST ${url} failed: ${r.status}`);
+  const r = await fetch(target, { method: "POST", body: fd });
+  if (!r.ok) throw new Error(`Ошибка POST ${target}: ${r.status}`);
 }
 
 function navigate(tabId, url) {
@@ -349,7 +312,7 @@ async function cropDataUrl(dataUrl, rect) {
   const sh = clamp(rect.h, 1, img.height - sy);
 
   if (sw < 5 || sh < 5) {
-    throw new Error("Cropped dimensions too small (minimum 5px required)");
+    throw new Error("Слишком маленький размер изображения (минимум 5px)");
   }
 
   const canvas = new OffscreenCanvas(sw, sh);
@@ -379,7 +342,7 @@ async function loadImage(dataUrl) {
     }
   } else {
     const res = await fetch(dataUrl);
-    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+    if (!res.ok) throw new Error(`Не удалось загрузить изображение: ${res.status}`);
     blob = await res.blob();
   }
 

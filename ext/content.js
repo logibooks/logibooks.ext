@@ -19,25 +19,24 @@ let statusLabel;
 let closeButton;
 
 // Handle messages from the page for presence queries and activation
-window.addEventListener('message', (event) => {
+window.addEventListener("message", (event) => {
   if (!event || event.source !== window || !event.data) return;
   const payload = event.data;
 
   // Respond to presence queries from the page
-  if (payload.type === 'LOGIBOOKS_EXTENSION_QUERY') {
-    window.postMessage({ type: 'LOGIBOOKS_EXTENSION_ACTIVE', active: true }, '*');
+  if (payload.type === "LOGIBOOKS_EXTENSION_QUERY") {
+    window.postMessage({ type: "LOGIBOOKS_EXTENSION_ACTIVE", active: true }, "*");
     return;
   }
 
   // Handle activation messages forwarded to the extension
-  if (payload.type === 'LOGIBOOKS_EXTENSION_ACTIVATE') {
-    console.log('message', event);
+  if (payload.type === "LOGIBOOKS_EXTENSION_ACTIVATE") {
 
-    const key = typeof payload.key === "string" ? payload.key.trim() : "";
+    const target = typeof payload.target === "string" ? payload.target.trim() : "";
     const url = typeof payload.url === "string" ? payload.url.trim() : "";
 
     // Basic validation to avoid forwarding arbitrary or malformed data
-    if (!key || key.length > 256) {
+    if (!target || target.length > 2048) {
       return;
     }
 
@@ -51,20 +50,21 @@ window.addEventListener('message', (event) => {
       return;
     }
 
+    try {
+      new URL(target);
+    } catch (e) {
+      return;
+    }
+
     chrome.runtime.sendMessage({
       type: "PAGE_ACTIVATE",
-      key,
+      target,
       url
     });
   }
 });
 
-const UI_STATE = {
-  IDLE: "idle",
-  SELECTING: "selecting"
-};
-
-let uiState = UI_STATE.IDLE;
+let uiState = "idle";
 
 function togglePanel(visible) {
   if (panel) {
@@ -139,7 +139,7 @@ function ensurePanel() {
   panel.appendChild(closeButton);
 
   statusLabel = document.createElement("div");
-  statusLabel.textContent = "Готово";
+  statusLabel.textContent = "";
 
   saveButton = document.createElement("button");
   saveButton.textContent = "Сохранить";
@@ -162,27 +162,42 @@ function ensurePanel() {
   panel.appendChild(saveButton);
   panel.appendChild(cancelButton);
   document.documentElement.appendChild(panel);
-
-  setUiState(UI_STATE.IDLE);
 }
 
-function setUiState(state, message) {
-  uiState = state;
+function showSelectionUI(message) {
+  uiState = "selecting";
+  if (!panel) ensurePanel();
+  
+  statusLabel.textContent = message || "Выберите область";
+  saveButton.style.display = "inline-flex";
+  cancelButton.style.display = "inline-flex";
+  saveButton.disabled = !selectedRect;
+  togglePanel(true);
+  startSelection();
+}
 
-  if (state === UI_STATE.IDLE) {
-    statusLabel.textContent = message || "Готово";
-    saveButton.style.display = "none";
-    cancelButton.style.display = "none";
-    saveButton.disabled = true;
-    cleanupSelection();
-  }
+function hideUI() {
+  uiState = "idle";
+  togglePanel(false);
+  cleanupSelection();
+}
 
-  if (state === UI_STATE.SELECTING) {
-    statusLabel.textContent = message || "Выберите область";
-    saveButton.style.display = "inline-flex";
-    cancelButton.style.display = "inline-flex";
-    saveButton.disabled = !selectedRect;
-  }
+function showError(message) {
+  uiState = "idle";
+  if (!panel) ensurePanel();
+  
+  statusLabel.textContent = message || "Ошибка";
+  saveButton.style.display = "none";
+  cancelButton.style.display = "none";
+  togglePanel(true);
+  cleanupSelection();
+  
+  // Auto-hide error after 5 seconds
+  setTimeout(() => {
+    if (uiState === "idle") {
+      togglePanel(false);
+    }
+  }, 5000);
 }
 
 function cleanupSelection() {
@@ -211,9 +226,6 @@ function startSelection() {
   if (overlay) return;
 
   selectedRect = null;
-  if (uiState !== UI_STATE.SELECTING) {
-    setUiState(UI_STATE.SELECTING);
-  }
 
   overlay = document.createElement("div");
   overlay.style.cssText = `
@@ -296,31 +308,29 @@ function startSelection() {
       h: Math.round(h * dpr)
     };
     saveButton.disabled = false;
-    cleanupOverlay();
+    // Keep the overlay and selection box visible after mouseup so the user
+    // can still see and confirm the selected area before saving.
+    // Remove the overlay only when the user cancels or starts a new selection.
+    // Make the box visually persistent (ensure pointer-events are none so it
+    // doesn't block clicks on the panel buttons).
+    box.style.pointerEvents = "none";
+    overlay.style.cursor = "default";
   };
 
   document.addEventListener("mouseup", mouseupHandler);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  ensurePanel();
-
-  if (msg?.type === "START_SELECT") {
-    setUiState(UI_STATE.SELECTING, msg.message);
-    startSelection();
+  if (msg?.type === "SHOW_UI") {
+    showSelectionUI(msg.message);
   }
 
-  if (msg?.type === "UI_STATE") {
-    setUiState(msg.state, msg.message);
+  if (msg?.type === "HIDE_UI") {
+    hideUI();
   }
 
-  if (msg?.type === "RESET_SELECTION") {
-    cleanupSelection();
-    setUiState(UI_STATE.IDLE, msg.message || "Готово");
-  }
-
-  if (msg?.type === "TOGGLE_UI") {
-    togglePanel(msg.visible);
+  if (msg?.type === "SHOW_ERROR") {
+    showError(msg.message);
   }
 });
 
