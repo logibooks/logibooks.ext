@@ -42,50 +42,65 @@ The repository includes a **local simulation server** for development and testin
 ```bash
 cd sim-server
 npm install
- # Logibooks — Techdoc helper (обновлённый)
+npm start
+```
 
- Этот репозиторий содержит расширение браузера, которое помогает делать скриншоты выбранной области страницы и загружать их на целевой endpoint.
+The server will:
+- Listen on `http://localhost:5177` by default
+- Serve a `/jobs` endpoint returning the next URL to visit
+- Accept uploads at `/upload/:key`
 
- **Коротко:**
- - UI и интеграция со страницей реализованы в content script.
- - Фоновые задачи (навигация вкладки, делать снимок экрана, загрузка) выполняет service worker (`ext/sw.js`).
+---
 
- ## Ключевые файлы
- - Файлы расширения: [ext/manifest.json](ext/manifest.json)
- - UI / взаимодействие со страницей: [ext/ext/content.js](ext/ext/content.js#L1)
- - Фон (service worker): [ext/ext/sw.js](ext/ext/sw.js#L1)
+## Extension Architecture
 
- ## Архитектура
- - `content.js` отвечает только за DOM/UI (панель, overlay выбора области, кнопки Сохранить/Отменить). Он не содержит бизнес-логики загрузки или доступа к API расширения.
- - `sw.js` (service worker) — единственный источник правды для состояния рабочего процесса (переход, ожидание выбора, загрузка). Он отправляет команды `SHOW_UI`, `HIDE_UI` и `SHOW_ERROR` контент-скрипту.
+### Key Files
+- Extension manifest: [ext/manifest.json](ext/manifest.json)
+- UI / page interaction: [ext/content.js](ext/content.js#L1)
+- Background (service worker): [ext/sw.js](ext/sw.js#L1)
 
- ## Почему service worker обязателен
- - API вроде `chrome.tabs.captureVisibleTab`, `chrome.tabs.update` и другие доступны только в фоновом контексте расширения. Их нельзя выполнять из content script.
+### Design
+- `content.js` is responsible only for DOM/UI (panel, selection overlay, Save/Cancel buttons). It contains no upload business logic or direct access to extension APIs.
+- `sw.js` (service worker) is the single source of truth for workflow state (navigation, awaiting selection, upload). It sends `SHOW_UI`, `HIDE_UI`, and `SHOW_ERROR` commands to the content script.
 
- ## Установка (локально, developer mode)
- 1. Откройте Chromium/Chrome/Edge.
- 2. Откройте `chrome://extensions` (или `edge://extensions`).
- 3. Включите "Режим разработчика".
- 4. Нажмите "Загрузить распакованное расширение" и укажите папку `ext` (путь к папке с `manifest.json`).
+### Why a service worker is required
+- APIs like `chrome.tabs.captureVisibleTab`, `chrome.tabs.update`, and others are only available in the extension background context. They cannot be called from a content script.
 
- ## Быстрая проверка
- - После загрузки нажмите на иконку расширения или используйте механизм активации со страницы (если есть) — UI появится и предложит выбрать область.
+---
 
- ## Команды для разработки
- (в проекте нет сборщика по умолчанию — файлы уже JS, просто редактируйте в `ext/ext/`)
+## Installation (local developer mode)
 
- - Запуск (если у вас был локальный симулятор API — `sim-server`):
+1. Open Chrome/Chromium/Edge
+2. Navigate to `chrome://extensions` (or `edge://extensions`)
+3. Enable "Developer mode"
+4. Click "Load unpacked" and select the `ext` folder (the folder containing `manifest.json`)
 
- ```bash
- # Если нужен dev-сервер (опционально)
- cd sim-server
- npm install
- npm start
- ```
+---
 
- - Перезагрузить расширение (после правок):
+## Quick test
 
- ```bash
- # В Chrome: откройте chrome://extensions и нажмите Reload напротив расширения
- ```
+After loading the extension:
+- Click the extension icon or use the page activation mechanism (if implemented)
+- The UI will appear and prompt you to select an area
+
+---
+
+## Development commands
+
+The project has no build step by default — files are plain JS. Just edit files in `ext/`.
+
+### Running the simulation server (optional)
+
+```bash
+cd sim-server
+npm install
+npm start
+```
+
+### Reloading the extension after changes
+
+In Chrome:
+1. Open `chrome://extensions`
+2. Click "Reload" next to the extension
+
 
