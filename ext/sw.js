@@ -12,8 +12,6 @@ const state = {
   tabId: null,
   returnUrl: null,
   targetUrl: null,
-  uploadPrefix: null,
-  key: null,
   token: null
 };
 
