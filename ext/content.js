@@ -1,3 +1,7 @@
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Logibooks techdoc helper extension 
+
 let overlay;
 let box;
 let startX;
@@ -9,18 +13,67 @@ let mousedownHandler;
 let mousemoveHandler;
 let mouseupHandler;
 let panel;
-let startButton;
 let saveButton;
 let cancelButton;
 let statusLabel;
 let closeButton;
 
-const UI_STATE = {
-  IDLE: "idle",
-  SELECTING: "selecting"
-};
+// Handle messages from the page for presence queries and activation
+window.addEventListener("message", (event) => {
+  if (!event || event.source !== window || !event.data) return;
+  const payload = event.data;
 
-let uiState = UI_STATE.IDLE;
+  // Respond to presence queries from the page
+  if (payload.type === "LOGIBOOKS_EXTENSION_QUERY") {
+    const targetOrigin = event.origin || window.location.origin;
+    window.postMessage({ type: "LOGIBOOKS_EXTENSION_ACTIVE", active: true }, targetOrigin);
+    return;
+  }
+
+  // Handle activation messages forwarded to the extension
+  if (payload.type === "LOGIBOOKS_EXTENSION_ACTIVATE") {
+
+    const target = typeof payload.target === "string" ? payload.target.trim() : "";
+    const url = typeof payload.url === "string" ? payload.url.trim() : "";
+    const token = typeof payload.token === "string" ? payload.token.trim() : "";
+
+    // Basic validation to avoid forwarding arbitrary or malformed data
+    if (!token || token.length > 256) {
+      return;
+    }
+
+    if (!target || target.length > 2048) {
+      return;
+    }
+
+    if (!url || url.length > 2048) {
+      return;
+    }
+
+    try {
+      new URL(url);
+    } catch (e) {
+      // Invalid URL in payload.url; treat as bad input and ignore this activation request
+      return;
+    }
+
+    try {
+      new URL(target);
+    } catch (e) {
+      // Invalid URL in payload.target; treat as bad input and ignore this activation request
+      return;
+    }
+
+    chrome.runtime.sendMessage({
+      type: "PAGE_ACTIVATE",
+      target,
+      url,
+      token
+    });
+  }
+});
+
+let uiState = "idle";
 
 function togglePanel(visible) {
   if (panel) {
@@ -46,7 +99,7 @@ function ensurePanel() {
     font-family: system-ui, sans-serif;
     font-size: 14px;
     color: #222;
-    display: flex;
+    display: none;
     flex-direction: column;
     gap: 8px;
     min-width: 180px;
@@ -95,15 +148,7 @@ function ensurePanel() {
   panel.appendChild(closeButton);
 
   statusLabel = document.createElement("div");
-  statusLabel.textContent = "Готово";
-
-  startButton = document.createElement("button");
-  startButton.textContent = "Начать";
-  startButton.type = "button";
-  startButton.style.cssText = "padding: 6px 12px;";
-  startButton.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "UI_START" });
-  });
+  statusLabel.textContent = "";
 
   saveButton = document.createElement("button");
   saveButton.textContent = "Сохранить";
@@ -123,33 +168,45 @@ function ensurePanel() {
   });
 
   panel.appendChild(statusLabel);
-  panel.appendChild(startButton);
   panel.appendChild(saveButton);
   panel.appendChild(cancelButton);
   document.documentElement.appendChild(panel);
-
-  setUiState(UI_STATE.IDLE);
 }
 
-function setUiState(state, message) {
-  uiState = state;
+function showSelectionUI(message) {
+  uiState = "selecting";
+  if (!panel) ensurePanel();
+  
+  statusLabel.textContent = message || "Выберите область";
+  saveButton.style.display = "inline-flex";
+  cancelButton.style.display = "inline-flex";
+  saveButton.disabled = !selectedRect;
+  togglePanel(true);
+  startSelection();
+}
 
-  if (state === UI_STATE.IDLE) {
-    statusLabel.textContent = message || "Готово";
-    startButton.style.display = "inline-flex";
-    saveButton.style.display = "none";
-    cancelButton.style.display = "none";
-    saveButton.disabled = true;
-    cleanupSelection();
-  }
+function hideUI() {
+  uiState = "idle";
+  togglePanel(false);
+  cleanupSelection();
+}
 
-  if (state === UI_STATE.SELECTING) {
-    statusLabel.textContent = message || "Выберите область";
-    startButton.style.display = "none";
-    saveButton.style.display = "inline-flex";
-    cancelButton.style.display = "inline-flex";
-    saveButton.disabled = !selectedRect;
-  }
+function showError(message) {
+  uiState = "idle";
+  if (!panel) ensurePanel();
+  
+  statusLabel.textContent = message || "Ошибка";
+  saveButton.style.display = "none";
+  cancelButton.style.display = "none";
+  togglePanel(true);
+  cleanupSelection();
+  
+  // Auto-hide error after 5 seconds
+  setTimeout(() => {
+    if (uiState === "idle") {
+      togglePanel(false);
+    }
+  }, 5000);
 }
 
 function cleanupSelection() {
@@ -178,9 +235,6 @@ function startSelection() {
   if (overlay) return;
 
   selectedRect = null;
-  if (uiState !== UI_STATE.SELECTING) {
-    setUiState(UI_STATE.SELECTING);
-  }
 
   overlay = document.createElement("div");
   overlay.style.cssText = `
@@ -263,32 +317,31 @@ function startSelection() {
       h: Math.round(h * dpr)
     };
     saveButton.disabled = false;
-    cleanupOverlay();
+    // Keep the overlay and selection box visible after mouseup so the user
+    // can still see and confirm the selected area before saving.
+    // Remove the overlay only when the user cancels or starts a new selection.
+    // Make the box visually persistent (ensure pointer-events are none so it
+    // doesn't block clicks on the panel buttons).
+    box.style.pointerEvents = "none";
+    overlay.style.cursor = "default";
   };
 
   document.addEventListener("mouseup", mouseupHandler);
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  ensurePanel();
-
-  if (msg?.type === "START_SELECT") {
-    setUiState(UI_STATE.SELECTING, msg.message);
-    startSelection();
+  if (msg?.type === "SHOW_UI") {
+    showSelectionUI(msg.message);
   }
 
-  if (msg?.type === "UI_STATE") {
-    setUiState(msg.state, msg.message);
+  if (msg?.type === "HIDE_UI") {
+    hideUI();
   }
 
-  if (msg?.type === "RESET_SELECTION") {
-    cleanupSelection();
-    setUiState(UI_STATE.IDLE, msg.message || "Готово");
-  }
-
-  if (msg?.type === "TOGGLE_UI") {
-    togglePanel(msg.visible);
+  if (msg?.type === "SHOW_ERROR") {
+    showError(msg.message);
   }
 });
 
 chrome.runtime.sendMessage({ type: "UI_READY" });
+

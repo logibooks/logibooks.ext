@@ -1,6 +1,7 @@
-import { getJobAt, normalizeJobsResponse } from "./workflow.js";
+// Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
+// All rights reserved.
+// This file is a part of Logibooks techdoc helper extension 
 
-const API_BASE = "http://localhost:5177";
 const ALLOW_LIST = [
   "http://localhost:5177/",
   "<all_urls>"
@@ -8,12 +9,14 @@ const ALLOW_LIST = [
 
 const state = {
   status: "idle",
-  jobs: [],
-  index: 0,
-  tabId: null
+  tabId: null,
+  returnUrl: null,
+  targetUrl: null,
+  target: null,
+  token: null
 };
 
-let isUiVisible = true;
+let isUiVisible = false;
 
 // Initialize UI visibility state from storage
 async function initializeUiVisibility() {
@@ -22,8 +25,8 @@ async function initializeUiVisibility() {
     if (result.isUiVisible !== undefined) {
       isUiVisible = result.isUiVisible;
     }
-  } catch (error) {
-    console.error("Failed to load UI visibility state:", error);
+  } catch {
+    // Ignore storage errors; UI visibility defaults to false
   }
 }
 
@@ -32,8 +35,8 @@ async function saveUiVisibility(visible) {
   isUiVisible = visible;
   try {
     await chrome.storage.local.set({ isUiVisible: visible });
-  } catch (error) {
-    console.error("Failed to save UI visibility state:", error);
+  } catch {
+    // Ignore storage errors; isUiVisible is already updated in memory
   }
 }
 
@@ -46,23 +49,29 @@ chrome.action.onClicked.addListener(async (tab) => {
   await saveUiVisibility(newVisibility);
   
   try {
-    await chrome.tabs.sendMessage(tab.id, { 
-      type: "TOGGLE_UI", 
-      visible: isUiVisible 
-    });
-  } catch (error) {
-    console.error("Failed to toggle UI:", error);
+    if (newVisibility) {
+      await chrome.tabs.sendMessage(tab.id, { 
+        type: "SHOW_UI", 
+        message: "Выберите область"
+      });
+    } else {
+      await chrome.tabs.sendMessage(tab.id, { type: "HIDE_UI" });
+    }
+  } catch {
+    // Tab may not have content script loaded; ignore messaging errors
   }
 });
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (!msg?.type) return;
 
-  if (msg.type === "UI_START") {
+  if (msg.type === "PAGE_ACTIVATE") {
     if (state.status !== "idle") return;
     const tabId = sender.tab?.id;
     if (tabId == null) return;
-    void startWorkflow(tabId);
+    // Move state out of "idle" immediately to avoid concurrent activations.
+    state.status = "navigating";
+    void handleActivation(tabId, sender.tab?.url, msg);
   }
 
   if (msg.type === "UI_SAVE") {
@@ -73,24 +82,13 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 
   if (msg.type === "UI_CANCEL") {
     if (sender.tab?.id !== state.tabId) return;
-    void resetState("Готово", true);
+    void handleCancel();
   }
 
   if (msg.type === "UI_READY") {
     const tabId = sender.tab?.id;
     if (tabId == null) return;
-    void (async () => {
-      await syncUiState(tabId);
-      // Send current visibility state to the newly loaded content script
-      try {
-        await chrome.tabs.sendMessage(tabId, { 
-          type: "TOGGLE_UI", 
-          visible: isUiVisible 
-        });
-      } catch (error) {
-        // Content script may not be ready yet
-      }
-    })();
+    void syncUiState(tabId);
   }
 
   if (msg.type === "HIDE_UI") {
@@ -106,116 +104,121 @@ async function broadcastUiVisibility() {
   for (const tab of tabs) {
     if (!tab.id) continue;
     try {
-      await chrome.tabs.sendMessage(tab.id, { 
-        type: "TOGGLE_UI", 
-        visible: isUiVisible 
-      });
-    } catch (error) {
-      // Tab may not have content script loaded
+      await chrome.tabs.sendMessage(tab.id, { type: "HIDE_UI" });
+    } catch {
+      // Tab may not have content script loaded; ignore messaging errors
     }
   }
 }
 
-async function startWorkflow(tabId) {
-  state.status = "fetching";
+async function handleActivation(tabId, returnUrl, payload) {
+
+  if (!payload?.url || typeof payload.url !== "string") {
+    await reportError(new Error("Ошибка выбора страницы (1)"), tabId);
+    return;
+  }
+  if (!payload?.target || typeof payload.target !== "string") {
+    await reportError(new Error("Ошибка выбора страницы (2)"), tabId);
+    return;
+  }
+  if (!returnUrl) {
+    await reportError(new Error("Ошибка выбора страницы (3)"), tabId);
+    return;
+  }
+  if (!isAllowed(payload.url)) {
+    await reportError(new Error(`URL не разрешен: ${payload.url}`), tabId);
+    return;
+  }
+
+  state.status = "navigating";
   state.tabId = tabId;
-  state.index = 0;
-  state.jobs = [];
+  state.returnUrl = returnUrl;
+  state.targetUrl = payload.url;
+  state.target = payload.target;
+  state.token = typeof payload.token === "string" ? payload.token.trim() : null;
 
   try {
-    notifyState(tabId, "idle", "Загрузка списка...");
-    const jobs = normalizeJobsResponse(await apiGetJobs());
-    if (jobs.length === 0) {
-      throw new Error("Нет URL для обработки");
-    }
-    state.jobs = jobs;
-    state.status = "navigating";
-    await processCurrentJob();
+    await navigate(tabId, payload.url);
+    await saveUiVisibility(true);
+    state.status = "awaiting_selection";
+    await sendMessageWithRetry(tabId, { 
+      type: "SHOW_UI", 
+      message: "Выберите область"
+    });
   } catch (error) {
     await reportError(error, tabId);
   }
 }
 
-async function processCurrentJob() {
-  const job = getJobAt(state.jobs, state.index);
-  if (!job) {
-    await resetState("Готово", true);
-    return;
-  }
-
-  if (!isAllowed(job.url)) {
-    throw new Error(`URL не разрешен: ${job.url}`);
-  }
-
-  await navigate(state.tabId, job.url);
-  state.status = "awaiting_selection";
-  await sendMessageWithRetry(state.tabId, { type: "START_SELECT" });
-  notifyState(state.tabId, "selecting", "Выберите область и нажмите Сохранить");
-}
-
 async function handleSave(rect) {
   try {
     state.status = "uploading";
-    const job = getJobAt(state.jobs, state.index);
-    if (!job) {
-      throw new Error("Текущее задание не найдено");
+    if (!state.tabId || !state.target) {
+      throw new Error("Активная сессия не найдена");
     }
 
     const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: "png" });
     const blob = await cropDataUrl(dataUrl, rect);
-    await apiUpload(job, rect, blob);
-
-    state.index += 1;
-    await processCurrentJob();
+    await apiUpload(state.target, rect, blob);
+    await finishSession();
   } catch (error) {
     await reportError(error, state.tabId);
   }
 }
 
-async function resetState(message, notify) {
-  state.status = "idle";
-  state.jobs = [];
-  state.index = 0;
+async function handleCancel() {
+  await finishSession();
+}
 
-  if (notify && state.tabId !== null && state.tabId !== undefined) {
-    await sendMessageWithRetry(state.tabId, { type: "RESET_SELECTION", message });
-    notifyState(state.tabId, "idle", message);
+async function finishSession() {
+  const { tabId, returnUrl } = state;
+  await saveUiVisibility(false);
+  if (tabId !== null && tabId !== undefined) {
+    await sendMessageWithRetry(tabId, { type: "HIDE_UI" });
   }
+  await resetState();
+  if (tabId !== null && tabId !== undefined && returnUrl) {
+    try {
+      await navigate(tabId, returnUrl);
+    } catch {
+      // Navigation back to returnUrl may fail if tab was closed; ignore errors
+    }
+  }
+}
+
+async function resetState() {
+  state.status = "idle";
   state.tabId = null;
+  state.returnUrl = null;
+  state.targetUrl = null;
+  state.target = null;
+  state.token = null;
 }
 
 async function reportError(error, tabId) {
   console.error(error);
   const message = error instanceof Error ? error.message : "Неизвестная ошибка";
   if (tabId !== null && tabId !== undefined) {
-    await sendMessageWithRetry(tabId, { type: "RESET_SELECTION", message });
-    notifyState(tabId, "idle", message);
+    await sendMessageWithRetry(tabId, { type: "SHOW_ERROR", message });
   }
   state.status = "idle";
-  state.jobs = [];
-  state.index = 0;
   state.tabId = null;
+  state.returnUrl = null;
+  state.targetUrl = null;
+  state.target = null;
+  state.token = null;
 }
 
 async function syncUiState(tabId) {
-  if (state.status === "awaiting_selection") {
-    await sendMessageWithRetry(tabId, { type: "START_SELECT" });
-    notifyState(tabId, "selecting", "Выберите область и нажмите Сохранить");
-  } else {
-    notifyState(tabId, "idle", "Готово");
-  }
+  if (state.status === "awaiting_selection" || isUiVisible) {
+    await sendMessageWithRetry(tabId, { 
+      type: "SHOW_UI", 
+      message: "Выберите область"
+    });
+  } 
 }
 
-function notifyState(tabId, stateName, message) {
-  if (tabId === null || tabId === undefined) return;
-  chrome.tabs.sendMessage(tabId, { type: "UI_STATE", state: stateName, message }, () => {
-    if (chrome.runtime.lastError) {
-      // Content script may not be ready yet; ignore.
-    }
-  });
-}
-
-async function sendMessageWithRetry(tabId, message, attempts = 10) {
+async function sendMessageWithRetry(tabId, message, attempts = 3) {
   for (let i = 0; i < attempts; i += 1) {
     const success = await sendMessageOnce(tabId, message);
     if (success) {
@@ -223,14 +226,6 @@ async function sendMessageWithRetry(tabId, message, attempts = 10) {
     }
     await delay(200);
   }
-  console.warn(
-    "Failed to deliver message to tab after all retry attempts",
-    {
-      tabId,
-      attempts,
-      messageType: message && message.type ? message.type : undefined
-    }
-  );
   return false;
 }
 
@@ -276,21 +271,18 @@ function isAllowed(url) {
   }
 }
 
-async function apiGetJobs() {
-  const r = await fetch(`${API_BASE}/jobs`, { method: "GET" });
-  if (!r.ok) throw new Error(`GET /jobs failed: ${r.status}`);
-  return await r.json();
-}
-
-async function apiUpload(job, rect, blob) {
+async function apiUpload(target, rect, blob) {
   const fd = new FormData();
-  fd.append("id", job.id);
-  fd.append("url", job.url);
   fd.append("rect", JSON.stringify(rect));
-  fd.append("image", blob, `snap-${job.id}.png`);
+  // Backend expects an IFormFile named 'file'
+  fd.append("file", blob, `snap-${Date.now()}.png`);
+  const headers = {};
+  if (state.token) {
+    headers["Authorization"] = `Bearer ${state.token}`;
+  }
 
-  const r = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd });
-  if (!r.ok) throw new Error(`POST /upload failed: ${r.status}`);
+  const r = await fetch(target, { method: "POST", body: fd, headers });
+  if (!r.ok) throw new Error(`Ошибка POST ${target}: ${r.status}`);
 }
 
 function navigate(tabId, url) {
@@ -329,7 +321,7 @@ async function cropDataUrl(dataUrl, rect) {
   const sh = clamp(rect.h, 1, img.height - sy);
 
   if (sw < 5 || sh < 5) {
-    throw new Error("Cropped dimensions too small (minimum 5px required)");
+    throw new Error("Слишком маленький размер изображения (минимум 5px)");
   }
 
   const canvas = new OffscreenCanvas(sw, sh);
@@ -359,7 +351,7 @@ async function loadImage(dataUrl) {
     }
   } else {
     const res = await fetch(dataUrl);
-    if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+    if (!res.ok) throw new Error(`Не удалось загрузить изображение: ${res.status}`);
     blob = await res.blob();
   }
 

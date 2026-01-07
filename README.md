@@ -1,43 +1,43 @@
 # logibooks.ext
 
-Chrome extension to support documentation generator
+Расширение Chrome для генератора документации
 
-A Chrome Manifest V3 extension that:
-- navigates to URLs from a server-controlled job queue,
-- asks the user to select a rectangle in the visible viewport,
-- captures and crops the selected area,
-- uploads the resulting image back to the server,
-- repeats until an end marker is received.
+Расширение Chrome Manifest V3, которое:
+- переходит по URL из очереди заданий, управляемой сервером,
+- предлагает пользователю выбрать прямоугольную область в видимой области просмотра,
+- захватывает и обрезает выбранную область,
+- загружает полученное изображение обратно на сервер,
+- повторяет процесс до получения маркера завершения.
 
-The repository includes a **local simulation server** for development and testing.
+Репозиторий включает **локальный сервер симуляции** для разработки и тестирования.
 
 ---
 
-## Components
+## Компоненты
 
-### 1. Chrome Extension (`/ext`)
+### 1. Расширение Chrome (`/ext`)
 - Manifest V3
-- Visible-area capture using `chrome.tabs.captureVisibleTab`
-- User-driven rectangle selection (drag overlay)
-- Cropping via `OffscreenCanvas`
-- Upload via `fetch` + `multipart/form-data`
+- Захват видимой области с использованием `chrome.tabs.captureVisibleTab`
+- Выбор прямоугольной области пользователем (overlay с перетаскиванием)
+- Обрезка через `OffscreenCanvas`
+- Загрузка через `fetch` + `multipart/form-data`
 
-### 2. Simulation Server (`/sim-server`)
+### 2. Сервер симуляции (`/sim-server`)
 - Node.js + Express
-- Serves a queue of URLs from an allow-list
-- Accepts uploaded screenshots
-- Stores images and metadata locally
+- Предоставляет очередь URL из списка разрешённых
+- Принимает загруженные скриншоты
+- Хранит изображения и метаданные локально
 
 ---
 
-## Prerequisites
+## Требования
 
-- Chrome (latest stable)
+- Chrome (последняя стабильная версия)
 - Node.js ≥ 18
 
 ---
 
-## Running the simulation server
+## Запуск сервера симуляции
 
 ```bash
 cd sim-server
@@ -45,30 +45,62 @@ npm install
 npm start
 ```
 
-The server will start on `http://localhost:3000`.
+Сервер будет:
+- Слушать на `http://localhost:5177` по умолчанию
+- Предоставлять endpoint `/jobs`, возвращающий следующий URL для посещения
+- Принимать загрузки на `/upload/:key`
 
 ---
 
-## Loading the Chrome extension
+## Архитектура расширения
 
-1. Open Chrome and navigate to `chrome://extensions`
-2. Enable **Developer mode** (toggle in the top-right corner)
-3. Click **Load unpacked**
-4. Select the `ext/` directory from this repository
+### Ключевые файлы
+- Манифест расширения: [ext/manifest.json](ext/manifest.json)
+- UI / взаимодействие со страницей: [ext/content.js](ext/content.js#L1)
+- Фоновая работа (service worker): [ext/sw.js](ext/sw.js#L1)
 
-The extension will now appear in your extensions list and toolbar.
+### Дизайн
+- `content.js` отвечает только за DOM/UI (панель, overlay выбора области, кнопки Сохранить/Отменить). Он не содержит бизнес-логики загрузки или прямого доступа к API расширения.
+- `sw.js` (service worker) — единственный источник истины для состояния рабочего процесса (навигация, ожидание выбора, загрузка). Он отправляет команды `SHOW_UI`, `HIDE_UI` и `SHOW_ERROR` в content script.
+
+### Почему необходим service worker
+- API вроде `chrome.tabs.captureVisibleTab`, `chrome.tabs.update` и другие доступны только в фоновом контексте расширения. Их нельзя вызывать из content script.
 
 ---
 
-## Using the extension
+## Установка (режим разработчика)
 
-**Note:** Make sure the simulation server is running before using the extension.
+1. Откройте Chrome/Chromium/Edge
+2. Перейдите в `chrome://extensions` (или `edge://extensions`)
+3. Включите "Режим разработчика"
+4. Нажмите "Загрузить распакованное расширение" и выберите папку `ext` (папку с файлом `manifest.json`)
 
-1. **Click the extension icon** in your Chrome toolbar
-2. The extension will:
-   - Open or reuse a worker tab
-   - Navigate to each URL from the `/next` endpoint on the simulation server
-   - Prompt you to drag-select a rectangle on the page
-   - Capture and crop the selected area
-   - Upload the cropped PNG to the server (`sim-server/uploads/`)
-   - Repeat until the server sends an end marker
+---
+
+## Быстрый тест
+
+После загрузки расширения:
+- Нажмите на иконку расширения или используйте механизм активации со страницы (если реализован)
+- Появится UI с предложением выбрать область
+
+---
+
+## Команды для разработки
+
+В проекте нет этапа сборки по умолчанию — файлы представляют собой чистый JS. Просто редактируйте файлы в `ext/`.
+
+### Запуск сервера симуляции (опционально)
+
+```bash
+cd sim-server
+npm install
+npm start
+```
+
+### Перезагрузка расширения после изменений
+
+В Chrome:
+1. Откройте `chrome://extensions`
+2. Нажмите "Обновить" рядом с расширением
+
+
