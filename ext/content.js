@@ -167,6 +167,8 @@ function ensurePanel() {
   saveButton.addEventListener("click", () => {
     if (!selectedRect) return;
     chrome.runtime.sendMessage({ type: "UI_SAVE", rect: selectedRect });
+    cleanupSelection();
+    togglePanel(false);
   });
 
   cancelButton = document.createElement("button");
