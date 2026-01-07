@@ -1,6 +1,9 @@
 // Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of Logibooks techdoc helper extension 
+//
+// Content script for page-activated screenshot extension.
+// See sw.js for architecture documentation and localStorage justification. 
 
 let overlay;
 let box;
@@ -30,9 +33,13 @@ window.addEventListener("message", (event) => {
     return;
   }
 
-  // Handle activation messages forwarded to the extension
+  // Handle activation messages from the host webpage
+  // This triggers the cross-page screenshot workflow that requires localStorage persistence
   if (payload.type === "LOGIBOOKS_EXTENSION_ACTIVATE") {
-
+    // Extract and validate parameters for the screenshot workflow:
+    // - target: Upload endpoint URL where screenshot will be sent
+    // - url: Target page URL to navigate to for screenshot capture  
+    // - token: Authentication token for upload endpoint
     const target = typeof payload.target === "string" ? payload.target.trim() : "";
     const url = typeof payload.url === "string" ? payload.url.trim() : "";
     const token = typeof payload.token === "string" ? payload.token.trim() : "";
@@ -64,6 +71,10 @@ window.addEventListener("message", (event) => {
       return;
     }
 
+    // Forward to background script which will:
+    // 1. Store these parameters in localStorage 
+    // 2. Navigate to the target URL
+    // 3. Restore UI state on the target page to show screenshot interface
     chrome.runtime.sendMessage({
       type: "PAGE_ACTIVATE",
       target,

@@ -1,6 +1,20 @@
 // Copyright (C) 2025 Maxim [maxirmx] Samsonov (www.sw.consulting)
 // All rights reserved.
 // This file is a part of Logibooks techdoc helper extension 
+//
+// ARCHITECTURE NOTE: Page-Activated Screenshot Extension
+// =====================================================
+// This extension is designed to be activated by host webpages, NOT by user clicks.
+// The workflow requires localStorage persistence because:
+//
+// 1. Page sends activation message with: target URL + upload endpoint + auth token
+// 2. Extension navigates TO the target URL to capture screenshot
+// 3. UI state must SURVIVE navigation to show screenshot interface on target page
+// 4. Extension uploads screenshot and navigates BACK to original page
+//
+// Without localStorage, the extension would lose UI state during navigation steps 2-4,
+// making it impossible for the screenshot interface to appear on the target page.
+// This service worker handles the localStorage persistence and navigation logic. 
 
 const ALLOW_LIST = [
   "http://localhost:5177/",
