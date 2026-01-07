@@ -110,6 +110,12 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
+if (chrome?.runtime?.onSuspend?.addListener) {
+  chrome.runtime.onSuspend.addListener(() => {
+    void handleExtensionSuspend();
+  });
+}
+
 if (chrome?.action?.onClicked?.addListener) {
   chrome.action.onClicked.addListener((tab) => {
     void handleActionClick(tab);
@@ -185,6 +191,29 @@ async function handleCancel() {
   await finishSession();
 }
 
+async function handleExtensionSuspend() {
+  await saveUiVisibility(false);
+
+  try {
+    if (chrome?.storage?.local?.clear) {
+      await new Promise((resolve) => {
+        chrome.storage.local.clear(() => {
+          resolve();
+        });
+      });
+    }
+  } catch {
+    // Ignore storage clearing errors; suspension cleanup will continue
+  }
+
+  const tabId = state.tabId;
+  if (tabId !== null && tabId !== undefined) {
+    await sendMessageWithRetry(tabId, { type: "HIDE_UI" });
+  }
+
+  await resetState();
+}
+
 async function handleActionClick(tab) {
   if (state.status !== "awaiting_selection" || state.tabId == null) {
     return;
@@ -254,12 +283,21 @@ async function reportError(error, tabId) {
 }
 
 async function syncUiState(tabId) {
-  if (state.status === "awaiting_selection" || isUiVisible) {
-    await sendMessageWithRetry(tabId, { 
-      type: "SHOW_UI", 
+  if (state.status === "awaiting_selection") {
+    if (!isUiVisible) {
+      await saveUiVisibility(true);
+    }
+    await sendMessageWithRetry(tabId, {
+      type: "SHOW_UI",
       message: "Выберите область"
     });
-  } 
+    return;
+  }
+
+  if (isUiVisible) {
+    await saveUiVisibility(false);
+    await sendMessageWithRetry(tabId, { type: "HIDE_UI" });
+  }
 }
 
 async function sendMessageWithRetry(tabId, message, attempts = 3) {
@@ -407,7 +445,7 @@ function clamp(v, lo, hi) {
 }
 
 // Expose helpers for Jest without emitting real exports in production code.
-const isTestEnv = typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+const isTestEnv = typeof globalThis !== "undefined" && globalThis.process?.env?.NODE_ENV === "test";
 if (isTestEnv && typeof globalThis !== "undefined") {
   globalThis.__swTestHooks__ = {
     isAllowed,
@@ -422,6 +460,8 @@ if (isTestEnv && typeof globalThis !== "undefined") {
     reportError,
     resetState,
     state,
-    handleActionClick
+    handleActionClick,
+    handleExtensionSuspend,
+    syncUiState
   };
 }

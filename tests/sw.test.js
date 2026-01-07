@@ -9,6 +9,7 @@ let sw;
 
 describe("Service worker helpers", () => {
   beforeEach(async () => {
+    jest.clearAllMocks();
     // ensure a real URL implementation for parsing
     global.URL = NodeURL;
     // basic chrome mock used by sw.js top-level initialization
@@ -23,7 +24,16 @@ describe("Service worker helpers", () => {
         onUpdated: { addListener: jest.fn(), removeListener: jest.fn() }
       },
       action: { onClicked: { addListener: jest.fn() } },
-      storage: { local: { get: jest.fn(async () => ({})), set: jest.fn(), remove: jest.fn(), clear: jest.fn() } }
+      storage: {
+        local: {
+          get: jest.fn(async () => ({})),
+          set: jest.fn(),
+          remove: jest.fn(),
+          clear: jest.fn((cb) => {
+            if (typeof cb === "function") cb();
+          })
+        }
+      }
     };
     global.fetch = jest.fn();
     // Provide a minimal FormData mock to avoid jsdom Blob instance checks
@@ -95,6 +105,62 @@ describe("Service worker helpers", () => {
     await sw.handleActionClick({ id: 999 });
 
     expect(global.chrome.tabs.update).toHaveBeenCalledWith(202, { active: true });
+  });
+
+  it("syncUiState shows UI only when awaiting selection", async () => {
+    sw.state.status = "awaiting_selection";
+    await sw.syncUiState(777);
+
+    expect(global.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      777,
+      expect.objectContaining({ type: "SHOW_UI" }),
+      expect.any(Function)
+    );
+
+    global.chrome.tabs.sendMessage.mockClear();
+    sw.state.status = "idle";
+    await sw.syncUiState(777);
+
+    expect(global.chrome.storage.local.set).toHaveBeenCalledWith({ isUiVisible: false });
+    expect(global.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      777,
+      expect.objectContaining({ type: "HIDE_UI" }),
+      expect.any(Function)
+    );
+  });
+
+  it("handleExtensionSuspend hides UI and resets state", async () => {
+    sw.state.status = "awaiting_selection";
+    sw.state.tabId = 321;
+    sw.state.returnUrl = "http://example.com";
+
+    await sw.handleExtensionSuspend();
+
+    expect(global.chrome.storage.local.set).toHaveBeenCalledWith({ isUiVisible: false });
+    expect(global.chrome.storage.local.clear).toHaveBeenCalled();
+    expect(global.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      321,
+      expect.objectContaining({ type: "HIDE_UI" }),
+      expect.any(Function)
+    );
+    expect(sw.state.status).toBe("idle");
+    expect(sw.state.tabId).toBeNull();
+    expect(sw.state.returnUrl).toBeNull();
+  });
+
+  it("handleExtensionSuspend skips messaging when no tab", async () => {
+    sw.state.status = "awaiting_selection";
+    sw.state.tabId = null;
+
+    await sw.handleExtensionSuspend();
+
+    expect(global.chrome.storage.local.clear).toHaveBeenCalled();
+    expect(global.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "HIDE_UI" }),
+      expect.any(Function)
+    );
+    expect(sw.state.status).toBe("idle");
   });
 
 });
