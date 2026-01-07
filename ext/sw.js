@@ -110,6 +110,12 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
+if (chrome?.action?.onClicked?.addListener) {
+  chrome.action.onClicked.addListener((tab) => {
+    void handleActionClick(tab);
+  });
+}
+
 
 
 async function handleActivation(tabId, returnUrl, payload) {
@@ -177,6 +183,28 @@ async function handleCancel() {
   // STATE: any → idle (via finishSession)
   // User cancelled, return to original page and reset
   await finishSession();
+}
+
+async function handleActionClick(tab) {
+  if (state.status !== "awaiting_selection" || state.tabId == null) {
+    return;
+  }
+
+  const targetTabId = state.tabId;
+
+  if (!tab || tab.id !== targetTabId) {
+    try {
+      await chrome.tabs.update(targetTabId, { active: true });
+    } catch {
+      // Tab may no longer exist; ignore focus errors
+    }
+  }
+
+  await saveUiVisibility(true);
+  await sendMessageWithRetry(targetTabId, {
+    type: "SHOW_UI",
+    message: "Выберите область"
+  });
 }
 
 async function finishSession() {
@@ -393,6 +421,7 @@ if (isTestEnv && typeof globalThis !== "undefined") {
     navigate,
     reportError,
     resetState,
-    state
+    state,
+    handleActionClick
   };
 }

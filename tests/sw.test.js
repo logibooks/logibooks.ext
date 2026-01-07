@@ -15,8 +15,10 @@ describe("Service worker helpers", () => {
     global.chrome = {
       runtime: { sendMessage: jest.fn(), lastError: null, onMessage: { addListener: jest.fn(), removeListener: jest.fn() } },
       tabs: {
-        sendMessage: jest.fn(),
-        update: jest.fn(),
+        sendMessage: jest.fn((tabId, message, callback) => {
+          if (typeof callback === "function") callback();
+        }),
+        update: jest.fn(async () => {}),
         captureVisibleTab: jest.fn(),
         onUpdated: { addListener: jest.fn(), removeListener: jest.fn() }
       },
@@ -53,7 +55,8 @@ describe("Service worker helpers", () => {
     let called = 0;
     global.chrome = {
       runtime: { lastError: null },
-      tabs: { sendMessage: jest.fn((tabId, message, cb) => { called += 1; cb(); }) }
+      tabs: { sendMessage: jest.fn((tabId, message, cb) => { called += 1; cb(); }) },
+      action: { onClicked: { addListener: jest.fn() } }
     };
     await import("../ext/sw.js");
     sw = globalThis.__swTestHooks__;
@@ -69,6 +72,29 @@ describe("Service worker helpers", () => {
     await expect(sw.apiUpload("https://api.local/upload", { x: 0, y: 0, w: 10, h: 10 }, new Blob())).rejects.toThrow(
       /Ошибка POST/
     );
+  });
+
+  it("action icon click reopens selection UI on session tab", async () => {
+    sw.state.status = "awaiting_selection";
+    sw.state.tabId = 101;
+
+    await sw.handleActionClick({ id: 101 });
+
+    expect(global.chrome.storage.local.set).toHaveBeenCalledWith({ isUiVisible: true });
+    expect(global.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      101,
+      expect.objectContaining({ type: "SHOW_UI" }),
+      expect.any(Function)
+    );
+  });
+
+  it("action icon click focuses session tab when invoked elsewhere", async () => {
+    sw.state.status = "awaiting_selection";
+    sw.state.tabId = 202;
+
+    await sw.handleActionClick({ id: 999 });
+
+    expect(global.chrome.tabs.update).toHaveBeenCalledWith(202, { active: true });
   });
 
 });
