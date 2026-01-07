@@ -128,17 +128,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
-async function broadcastUiVisibility() {
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    if (!tab.id) continue;
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "HIDE_UI" });
-    } catch {
-      // Tab may not have content script loaded; ignore messaging errors
-    }
-  }
-}
+
 
 async function handleActivation(tabId, returnUrl, payload) {
 

@@ -84,8 +84,6 @@ window.addEventListener("message", (event) => {
   }
 });
 
-let uiState = "idle";
-
 function togglePanel(visible) {
   if (panel) {
     panel.style.display = visible ? "flex" : "none";
@@ -186,7 +184,6 @@ function ensurePanel() {
 }
 
 function showSelectionUI(message) {
-  uiState = "selecting";
   if (!panel) ensurePanel();
   
   statusLabel.textContent = message || "Выберите область";
@@ -197,14 +194,9 @@ function showSelectionUI(message) {
   startSelection();
 }
 
-function hideUI() {
-  uiState = "idle";
-  togglePanel(false);
-  cleanupSelection();
-}
+
 
 function showError(message) {
-  uiState = "idle";
   if (!panel) ensurePanel();
   
   statusLabel.textContent = message || "Ошибка";

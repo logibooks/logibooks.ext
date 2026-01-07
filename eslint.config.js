@@ -38,7 +38,12 @@ export default [
       globals: {
         describe: "readonly",
         it: "readonly",
-        assert: "readonly"
+        assert: "readonly",
+        global: "writable",
+        expect: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        jest: "readonly"
       }
     }
   },
