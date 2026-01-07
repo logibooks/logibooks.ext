@@ -21,6 +21,18 @@ let cancelButton;
 let statusLabel;
 let closeButton;
 
+function setSaveDisabled(disabled) {
+  if (!saveButton) return;
+  saveButton.disabled = !!disabled;
+  if (disabled) {
+    saveButton.style.opacity = "0.2";
+    saveButton.style.cursor = "not-allowed";
+  } else {
+    saveButton.style.opacity = "";
+    saveButton.style.cursor = "pointer";
+  }
+}
+
 // Handle messages from the page for presence queries and activation
 window.addEventListener("message", (event) => {
   if (!event || event.source !== window || !event.data) return;
@@ -92,50 +104,37 @@ function togglePanel(visible) {
 
 function ensurePanel() {
   if (panel) return;
+  // Inject UI styles (ui-main copy + extension overrides)
+  try {
+      // no ui-main.css injection: we copy required rules into extension-ui.css
+    } catch (err) {
+      // ignore
+    }
+
+  // No CSS injection: we use inline styles for all UI elements to avoid
+  // loading external styles into the host page.
 
   panel = document.createElement("div");
   panel.id = "logibooks-panel";
-  panel.style.cssText = `
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    z-index: 2147483647;
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    padding: 12px;
-    font-family: system-ui, sans-serif;
-    font-size: 14px;
-    color: #222;
-    display: none;
-    flex-direction: column;
-    gap: 8px;
-    min-width: 180px;
-  `;
+  panel.style.cssText = (
+    "position: fixed; top: 16px; right: 16px; z-index: 2147483647; " +
+    "background: #fff; border: 1px solid #ccc; border-radius: 8px; " +
+    "box-shadow: 0 2px 8px rgba(0,0,0,0.15); padding: 12px; display: none; " +
+    "flex-direction: column; gap: 8px; min-width: 180px; color: #222; " +
+    "font-family: system-ui, sans-serif; font-size: 14px;"
+  );
 
   closeButton = document.createElement("button");
   closeButton.textContent = "✕";
   closeButton.type = "button";
   closeButton.title = "Скрыть панель";
-  closeButton.style.cssText = `
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    padding: 2px 6px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
-    color: #666;
-  `;
-  closeButton.addEventListener("mouseover", () => {
-    closeButton.style.color = "#000";
-  });
-  closeButton.addEventListener("mouseout", () => {
-    closeButton.style.color = "#666";
-  });
+  closeButton.style.cssText = (
+    "position: absolute; top: 4px; right: 4px; padding: 2px 6px; " +
+    "border: none; background: transparent; cursor: pointer; font-size: 16px; " +
+    "line-height: 1; color: #666;"
+  );
+  closeButton.addEventListener("mouseover", () => { closeButton.style.color = "#000"; });
+  closeButton.addEventListener("mouseout", () => { closeButton.style.color = "#666"; });
   closeButton.addEventListener("click", () => {
     // Hide locally to avoid UI being stuck if the message fails.
     togglePanel(false);
@@ -158,12 +157,17 @@ function ensurePanel() {
   panel.appendChild(closeButton);
 
   statusLabel = document.createElement("div");
+  statusLabel.style.cssText = "font-size: 14px; margin-top: 4px;";
   statusLabel.textContent = "";
 
   saveButton = document.createElement("button");
   saveButton.textContent = "Сохранить";
   saveButton.type = "button";
-  saveButton.style.cssText = "padding: 6px 12px; cursor: pointer;";
+  saveButton.style.cssText = (
+    "padding: 0.5rem 0.8rem; border: none; border-radius: 4px; " +
+    "background-color: #1976d2; color: white; font-size: 13px; font-weight: 500; " +
+    "cursor: pointer; transition: all 0.15s; min-width: 64px;"
+  );
   saveButton.addEventListener("click", () => {
     if (!selectedRect) return;
     const rectToSend = selectedRect;
@@ -206,14 +210,21 @@ function ensurePanel() {
   cancelButton = document.createElement("button");
   cancelButton.textContent = "Отменить";
   cancelButton.type = "button";
-  cancelButton.style.cssText = "padding: 6px 12px; cursor: pointer;";
+  cancelButton.style.cssText = (
+    "padding: 0.5rem 0.8rem; border: none; border-radius: 4px; " +
+    "background-color: #6c757d; color: white; font-size: 13px; font-weight: 500; " +
+    "cursor: pointer; transition: all 0.15s; min-width: 64px;"
+  );
   cancelButton.addEventListener("click", () => {
     chrome.runtime.sendMessage({ type: "UI_CANCEL" });
   });
 
+  const actions = document.createElement("div");
+  actions.style.cssText = "display: flex; gap: 8px; align-items: center;";
+  actions.appendChild(saveButton);
+  actions.appendChild(cancelButton);
   panel.appendChild(statusLabel);
-  panel.appendChild(saveButton);
-  panel.appendChild(cancelButton);
+  panel.appendChild(actions);
   // Note: reselection is initiated by pressing mouse on the overlay;
   // no explicit "reselect" button is needed.
   document.documentElement.appendChild(panel);
@@ -225,7 +236,7 @@ function showSelectionUI(message) {
   statusLabel.textContent = message || "Выберите область";
   saveButton.style.display = "inline-flex";
   cancelButton.style.display = "inline-flex";
-  saveButton.disabled = !selectedRect;
+  setSaveDisabled(!selectedRect);
   togglePanel(true);
   startSelection();
 }
@@ -270,17 +281,10 @@ function startSelection() {
   selectedRect = null;
 
   overlay = document.createElement("div");
-  overlay.style.cssText = `
-    position: fixed; inset: 0; z-index: 2147483646;
-    cursor: crosshair; background: rgba(0,0,0,0.02);
-  `;
+  overlay.style.cssText = "position: fixed; inset: 0; z-index: 2147483646; cursor: crosshair; background: rgba(0,0,0,0.02);";
 
   box = document.createElement("div");
-  box.style.cssText = `
-    position: absolute; border: 2px dashed #333;
-    background: rgba(255,255,255,0.15);
-    left: 0; top: 0; width: 0; height: 0;
-  `;
+  box.style.cssText = "position: absolute; border: 2px dashed #333; background: rgba(255,255,255,0.15); left: 0; top: 0; width: 0; height: 0;";
 
   overlay.appendChild(box);
   document.documentElement.appendChild(overlay);
@@ -319,7 +323,7 @@ function startSelection() {
     box.style.height = "0px";
     // When starting a new selection, clear previous rect and disable Save
     selectedRect = null;
-    saveButton.disabled = true;
+    setSaveDisabled(true);
     e.preventDefault();
   };
 
@@ -353,7 +357,7 @@ function startSelection() {
     const h = y2 - y1;
     if (w < 5 || h < 5) {
       selectedRect = null;
-      saveButton.disabled = true;
+      setSaveDisabled(true);
       cleanupOverlay();
       return;
     }
@@ -365,7 +369,7 @@ function startSelection() {
       w: Math.round(w * dpr),
       h: Math.round(h * dpr)
     };
-    saveButton.disabled = false;
+    setSaveDisabled(false);
     // Keep the overlay and selection box visible after mouseup so the user
     // can still see and confirm the selected area before saving.
     // Remove the overlay only when the user cancels or starts a new selection.
