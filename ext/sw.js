@@ -16,10 +16,38 @@
 // making it impossible for the screenshot interface to appear on the target page.
 // This service worker handles the persistent storage (chrome.storage.local) and navigation logic. 
 
-const ALLOW_LIST = [
-  "http://localhost:5177/",
-  "<all_urls>"
-];
+const UI_ORIGINS = new Set([
+  "https://logibooks.sw.consulting",
+  "http://localhost"
+]);
+
+const ALLOWED_TARGET_SUFFIXES = ["ozon.ru", "wildberries.ru"];
+
+function isAllowedTarget(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    const h = u.hostname.toLowerCase();
+    return ALLOWED_TARGET_SUFFIXES.some((d) => h === d || h.endsWith("." + d));
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedActivator(returnUrl) {
+  try {
+   const u = new URL(returnUrl);
+   // direct exact-origin match first
+   if (UI_ORIGINS.has(u.origin)) return true;
+   // allow matching scheme + hostname ignoring port for entries like http://localhost
+   const originNoPort = `${u.protocol}//${u.hostname}`;
+   if (UI_ORIGINS.has(originNoPort)) return true;
+   return false;
+ } catch {
+    return false;
+ }
+}
+
 
 // STATE MACHINE DOCUMENTATION
 // ===========================
@@ -185,48 +213,42 @@ if (chrome?.webNavigation?.onCommitted?.addListener) {
   });
 }
 
-
-
-async function handleActivation(tabId, returnUrl, payload) {
-
-  if (!payload?.url || typeof payload.url !== "string") {
-    await reportError(new Error("Ошибка выбора страницы (1)"), tabId);
-    return;
-  }
-  if (!payload?.target || typeof payload.target !== "string") {
-    await reportError(new Error("Ошибка выбора страницы (2)"), tabId);
-    return;
-  }
-  if (!returnUrl) {
-    await reportError(new Error("Ошибка выбора страницы (3)"), tabId);
-    return;
-  }
-  if (!isAllowed(payload.url)) {
-    await reportError(new Error(`URL не разрешен: ${payload.url}`), tabId);
-    return;
-  }
-
-  const trimmedToken = typeof payload.token === "string" ? payload.token.trim() : null;
-  await setSessionState({
-    status: "navigating",
-    tabId,
-    returnUrl,
-    targetUrl: payload.url,
-    target: payload.target,
-    token: trimmedToken
-  });
-
-  try {
-    await navigate(tabId, payload.url);
-    await saveUiVisibility(true);
-    await setSessionState({ status: "awaiting_selection" });
-    await sendMessageWithRetry(tabId, { 
-      type: "SHOW_UI", 
-      message: "Выберите область"
-    });
-  } catch (error) {
-    await reportError(error, tabId);
-  }
+async function handleActivation(tabId, returnUrl, payload) { 
+  if (!payload?.url || typeof payload.url !== "string") { 
+    await reportError(new Error("Ошибка выбора страницы (1)"), tabId); 
+    return; 
+  } 
+  
+  if (!payload?.target || typeof payload.target !== "string") { 
+    await reportError(new Error("Ошибка выбора страницы (2)"), tabId); 
+    return; 
+  } 
+  
+  if (!returnUrl) { 
+    await reportError(new Error("Ошибка выбора страницы (3)"), tabId); 
+    return; 
+  } 
+  
+  if (!isAllowedActivator(returnUrl)) { 
+    await reportError(new Error("Forbidden activator origin"), tabId); 
+    return; 
+  } 
+  
+  if (!isAllowedTarget(payload.url)) { 
+    await reportError(new Error(`URL не разрешен: ${payload.url}`), tabId); 
+    return; 
+  } 
+  
+  const trimmedToken = typeof payload.token === "string" ? payload.token.trim() : null; 
+  await setSessionState({ status: "navigating", tabId, returnUrl, targetUrl: payload.url, target: payload.target, token: trimmedToken }); 
+  try { 
+    await navigate(tabId, payload.url); 
+    await saveUiVisibility(true); 
+    await setSessionState({ status: "awaiting_selection" }); 
+    await sendMessageWithRetry(tabId, { type: "SHOW_UI", message: "Выберите область" }); 
+  } catch (error) { 
+    await reportError(error, tabId); 
+  } 
 }
 
 async function handleSave(rect) {
@@ -394,36 +416,6 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isAllowed(url) {
-  try {
-    const urlObj = new URL(url);
-
-    if (urlObj.protocol !== "http:" && urlObj.protocol !== "https:") {
-      return false;
-    }
-
-    // If ALLOW_LIST explicitly contains the wildcard, accept any http(s) origin
-    if (ALLOW_LIST.includes("<all_urls>")) return true;
-
-    return ALLOW_LIST.some((allowed) => {
-      try {
-        const allowedObj = new URL(allowed);
-
-        if (urlObj.origin !== allowedObj.origin) {
-          return false;
-        }
-
-        const allowedPath = allowedObj.pathname;
-        return urlObj.pathname.startsWith(allowedPath);
-      } catch {
-        return false;
-      }
-    });
-  } catch {
-    return false;
-  }
-}
-
 async function apiUpload(target, rect, blob) {
   const fd = new FormData();
   fd.append("rect", JSON.stringify(rect));
@@ -528,7 +520,8 @@ const isTestEnv =
   );
 if (isTestEnv && typeof globalThis !== "undefined") {
   globalThis.__swTestHooks__ = {
-    isAllowed,
+    isAllowedTarget,
+    isAllowedActivator,
     clamp,
     delay,
     sendMessageWithRetry,
