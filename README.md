@@ -5,7 +5,7 @@
 Chrome Manifest V3 extension that:
 - follows URL requested by Logibooks UI application,
 - waits user to select rectangular area,
-- capture selected area and creates png image,
+- captures selected area and creates png image,
 - saves png image to server URL provided by Logibooks UI application
 
 This workflow can be cancelled by the user.
