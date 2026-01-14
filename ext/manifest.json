@@ -1,30 +1,37 @@
 {
-  "manifest_version": 3,
-  "name": "Logibooks Techdoc Helper",
-  "version": "0.3.0",
-  "icons": {
-    "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
-  },
-  "action": {
-    "default_title": "Logibooks Techdoc Helper",
-    "default_icon": {
-      "16": "icons/icon-16.png",
-      "32": "icons/icon-32.png",
-      "48": "icons/icon-48.png",
-      "128": "icons/icon-128.png"
-    }
-  },
-  "permissions": ["tabs", "activeTab", "scripting", "storage", "webNavigation"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "sw.js", "type": "module" },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ]
-}
+   "manifest_version": 3,
+   "name": "Logibooks Techdoc Helper",
+   "version": "0.4.0",
+   "icons": {
+     "16": "icons/icon-16.png",
+     "32": "icons/icon-32.png",
+     "48": "icons/icon-48.png",
+     "128": "icons/icon-128.png"
+   },
+   "action": {
+     "default_title": "Logibooks Techdoc Helper",
+     "default_icon": {
+       "16": "icons/icon-16.png",
+       "32": "icons/icon-32.png",
+       "48": "icons/icon-48.png",
+       "128": "icons/icon-128.png"
+     }
+   },
+   "permissions": ["tabs", "scripting", "storage", "webNavigation"],
+   "host_permissions": [
+     "<all_urls>"
+   ],
+   "background": { "service_worker": "sw.js", "type": "module" },
+   "content_scripts": [
+     {
+       "matches": [
+         "https://logibooks.sw.consulting/*",
+         "http://localhost/*",
+         "https://*.ozon.ru/*",
+         "https://*.wildberries.ru/*"
+       ],
+       "js": ["content.js"],
+       "run_at": "document_idle"
+     }
+   ]
+ }

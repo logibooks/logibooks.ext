@@ -22,6 +22,12 @@ let statusLabel;
 let closeButton;
 let selectionToggleButton;
 
+// Allowed UI origins (prod + dev). Only these can activate the workflow.
+const LOGIBOOKS_UI_ORIGINS = new Set([
+  "https://logibooks.sw.consulting",
+  "http://localhost"
+]);
+
 const SPA_NAV_EVENT = "logibooks:navigation";
 let spaHooksInstalled = false;
 
@@ -102,63 +108,47 @@ function installSpaNavigationHooks() {
 // Handle messages from the page for presence queries and activation
 window.addEventListener("message", (event) => {
   if (!event || event.source !== window || !event.data) return;
+  try {
+    const originUrl = new URL(event.origin);
+    // allow exact origin match
+    if (!LOGIBOOKS_UI_ORIGINS.has(event.origin)) {
+      // allow scheme+hostname matches (ignore port) for configured origins
+      const originNoPort = `${originUrl.protocol}//${originUrl.hostname}`;
+      if (!LOGIBOOKS_UI_ORIGINS.has(originNoPort)) return;
+    }
+  } catch {
+    return;
+  }
+
   const payload = event.data;
 
   // Respond to presence queries from the page
   if (payload.type === "LOGIBOOKS_EXTENSION_QUERY") {
-    const targetOrigin = event.origin || window.location.origin;
-    window.postMessage({ type: "LOGIBOOKS_EXTENSION_ACTIVE", active: true }, targetOrigin);
+    window.postMessage(
+      { type: "LOGIBOOKS_EXTENSION_ACTIVE", active: true },
+      event.origin
+    );
     return;
   }
 
   // Handle activation messages from the host webpage
-  // This triggers the cross-page screenshot workflow that requires localStorage persistence
   if (payload.type === "LOGIBOOKS_EXTENSION_ACTIVATE") {
-    // Extract and validate parameters for the screenshot workflow:
-    // - target: Upload endpoint URL where screenshot will be sent
-    // - url: Target page URL to navigate to for screenshot capture  
-    // - token: Authentication token for upload endpoint
     const target = typeof payload.target === "string" ? payload.target.trim() : "";
     const url = typeof payload.url === "string" ? payload.url.trim() : "";
     const token = typeof payload.token === "string" ? payload.token.trim() : "";
 
     // Basic validation to avoid forwarding arbitrary or malformed data
-    if (!token || token.length > 256) {
-      return;
-    }
-
-    if (!target || target.length > 2048) {
-      return;
-    }
-
-    if (!url || url.length > 2048) {
-      return;
-    }
-
-    try {
-      new URL(url);
-    } catch (e) {
-      // Invalid URL in payload.url; treat as bad input and ignore this activation request
-      return;
-    }
-
-    try {
-      new URL(target);
-    } catch (e) {
-      // Invalid URL in payload.target; treat as bad input and ignore this activation request
-      return;
-    }
+    if (!token || token.length > 256) return;
+    if (!target || target.length > 2048) return;
+    if (!url || url.length > 2048) return;
+    try { new URL(url); } catch { return; }
+    try { new URL(target); } catch { return; }
 
     // Forward to background script which will:
     // 1. Store these parameters in local storage using Chrome API 
     // 2. Navigate to the target URL
     // 3. Restore UI state on the target page to show screenshot interface
-    chrome.runtime.sendMessage({
-      type: "PAGE_ACTIVATE",
-      target,
-      url,
-      token
-    });
+    chrome.runtime.sendMessage({ type: "PAGE_ACTIVATE", target, url, token });
   }
 });
 

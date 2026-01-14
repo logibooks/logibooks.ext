@@ -54,11 +54,47 @@ describe("Service worker helpers", () => {
     expect(sw.clamp(11, 0, 10)).toBe(10);
   });
 
-  it("isAllowed accepts http and https and wildcard", () => {
-    expect(sw.isAllowed("http://example.com/test")).toBe(true);
-    expect(sw.isAllowed("https://example.com/test")).toBe(true);
-    // malformed url
-    expect(sw.isAllowed("not a url")).toBe(false);
+  describe("isAllowedTarget", () => {
+    it("rejects malformed and unsupported protocols", () => {
+      expect(sw.isAllowedTarget("not a url")).toBe(false);
+      expect(sw.isAllowedTarget("ftp://ozon.ru")).toBe(false);
+      expect(sw.isAllowedTarget("data:image/png;base64,AAAA")).toBe(false);
+    });
+
+    it("rejects unknown hosts and unrelated domains", () => {
+      expect(sw.isAllowedTarget("https://example.com/test")).toBe(false);
+      expect(sw.isAllowedTarget("http://someother.ozon.com")).toBe(false);
+    });
+
+    it("accepts exact allowed domains and their subdomains over http/https", () => {
+      expect(sw.isAllowedTarget("https://ozon.ru/")).toBe(true);
+      expect(sw.isAllowedTarget("http://ozon.ru/path")).toBe(true);
+      expect(sw.isAllowedTarget("https://sub.wildberries.ru/shop")).toBe(true);
+      expect(sw.isAllowedTarget("https://deep.sub.domain.ozon.ru/page")).toBe(true);
+    });
+
+    it("rejects similarly named but different TLDs or substrings", () => {
+      expect(sw.isAllowedTarget("https://ozonru.ru")).toBe(false);
+      expect(sw.isAllowedTarget("https://notwildberries.ru")).toBe(false);
+    });
+  });
+
+  describe("isAllowedActivator", () => {
+    it("accepts only exact origins listed in UI_ORIGINS and rejects others", () => {
+      // origin must match exactly including scheme and port
+      expect(sw.isAllowedActivator("https://logibooks.sw.consulting/page")).toBe(true);
+      expect(sw.isAllowedActivator("https://logibooks.sw.consulting")).toBe(true);
+      expect(sw.isAllowedActivator("https://logibooks.sw.consulting:8080/page")).toBe(true);
+      expect(sw.isAllowedActivator("http://localhost/")).toBe(true);
+      expect(sw.isAllowedActivator("http://localhost:5177/some/path")).toBe(true);
+      expect(sw.isAllowedActivator("http://localhost:3000/" )).toBe(true);
+      expect(sw.isAllowedActivator("https://evil.example.com" )).toBe(false);
+    });
+
+    it("returns false for malformed URLs", () => {
+      expect(sw.isAllowedActivator(123)).toBe(false);
+      expect(sw.isAllowedActivator("not-a-url")).toBe(false);
+    });
   });
 
   it("sendMessageWithRetry retries on failure", async () => {
