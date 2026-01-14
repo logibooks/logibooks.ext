@@ -2,49 +2,11 @@
 [![ci](https://github.com/maxirmx/logibooks.ext/actions/workflows/ci.yml/badge.svg)](https://github.com/maxirmx/logibooks.ext/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/maxirmx/logibooks.ext/graph/badge.svg?token=8LfuBRVDwu)](https://codecov.io/gh/maxirmx/logibooks.ext)
 
-Расширение Chrome для генератора документации
+Chrome Manifest V3 extension that:
+- follows URL requested by Logibooks UI application,
+- waits user to select rectangular area,
+- grabs selected area and creates png image,
+- saves png image to server URL provided by Logibooks UI application
 
-Расширение Chrome Manifest V3, которое:
-- переходит по URL из очереди заданий, управляемой сервером,
-- предлагает пользователю выбрать прямоугольную область в видимой области просмотра,
-- захватывает и обрезает выбранную область,
-- загружает полученное изображение обратно на сервер,
-- повторяет процесс до получения маркера завершения.
-
-Репозиторий включает **локальный сервер симуляции** для разработки и тестирования.
-
----
-
-## Компоненты
-
-### 1. Расширение Chrome (`/ext`)
-- Manifest V3
-- Захват видимой области с использованием `chrome.tabs.captureVisibleTab`
-- Выбор прямоугольной области пользователем (overlay с перетаскиванием)
-- Обрезка через `OffscreenCanvas`
-- Загрузка через `fetch` + `multipart/form-data`
-
-# logibooks.ext — расширение для скриншотов и загрузки
-
-Краткое описание
- - Это расширение (Chrome Manifest V3) помогает захватить прямоугольную область страницы и загрузить её на указанный серверный endpoint.
- - Расширение разбито на два уровня: UI в контент-скрипте (`content.js`) и управляющая логика в service worker (`sw.js`).
-
-Ключевые моменты
- - Вызов расширения инициируется страницей (сообщением), после чего сервисный воркер навигирует вкладку на целевой URL и переводит состояние в "ожидание выбора".
- - `content.js` рисует overlay для выбора области, показывает панель с кнопками и управляет взаимодействием пользователя (выбор, отмена, повторный выбор).
- - `sw.js` отвечает за навигацию, сохранение состояния между навигациями, захват видимой области (`chrome.tabs.captureVisibleTab`), обрезку и отправку изображения на сервер.
- - Перед захватом изображения overlay и панель скрываются и код ждёт перерисовки (двойной `requestAnimationFrame`) чтобы исключить артефакты UI на скриншоте.
-
-Основные файлы
- - Манифест: [ext/manifest.json](ext/manifest.json)
- - Контент-скрипт (UI): [ext/content.js](ext/content.js)
- - Service worker (логика): [ext/sw.js](ext/sw.js)
- - Тесты: [tests/](tests)
-
-Поведение UI 
- - После навигации на целевую страницу service worker шлёт `SHOW_UI` в `content.js`.
- - Пользователь рисует прямоугольник мышью. После отпускания кнопки мыши выделение остаётся видимым; повторный клик мыши инициирует новую область (предыдущее выделение удаляется).
- - Нажатие "Сохранить" скрывает overlay/панель и отправляет `UI_SAVE` сервисному воркеру только после подтверждённой перерисовки страницы.
- - Нажатие "Отменить" отправляет `UI_CANCEL` и возвращает состояние в `idle`.
+This workflow can be cancelled by the user.
 
