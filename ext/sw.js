@@ -36,16 +36,16 @@ function isAllowedTarget(url) {
 
 function isAllowedActivator(returnUrl) {
   try {
-   const u = new URL(returnUrl);
-   // direct exact-origin match first
-   if (UI_ORIGINS.has(u.origin)) return true;
-   // allow matching scheme + hostname ignoring port for entries like http://localhost
-   const originNoPort = `${u.protocol}//${u.hostname}`;
-   if (UI_ORIGINS.has(originNoPort)) return true;
-   return false;
- } catch {
+    const u = new URL(returnUrl);
+    // direct exact-origin match first
+    if (UI_ORIGINS.has(u.origin)) return true;
+    // allow matching scheme + hostname ignoring port for entries like http://localhost
+    const originNoPort = `${u.protocol}//${u.hostname}`;
+    if (UI_ORIGINS.has(originNoPort)) return true;
     return false;
- }
+  } catch {
+    return false;
+  }
 }
 
 
