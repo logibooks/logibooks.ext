@@ -130,6 +130,15 @@ async function initializeUiVisibility() {
 
 function normalizeRect(rect) {
   if (!rect || typeof rect !== "object") return null;
+  
+  // Explicitly validate that x/y/w/h are present and not null/"" before conversion
+  if (rect.x == null || rect.x === "" || 
+      rect.y == null || rect.y === "" || 
+      rect.w == null || rect.w === "" || 
+      rect.h == null || rect.h === "") {
+    return null;
+  }
+  
   const x = Math.round(Number(rect.x));
   const y = Math.round(Number(rect.y));
   const w = Math.round(Number(rect.w));
