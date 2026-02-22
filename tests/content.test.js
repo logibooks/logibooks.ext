@@ -31,4 +31,13 @@ describe("Content script UI", () => {
     expect(typeof created.textContent).toBe("string");
   });
 
+  it("showSelectionUI restores a preselected rect", () => {
+    content.ensurePanel();
+    const rect = { x: 10, y: 20, w: 100, h: 150 };
+
+    content.showSelectionUI("Выберите область", rect);
+
+    expect(content.getSelectedRect()).toEqual(rect);
+  });
+
 });

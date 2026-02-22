@@ -75,7 +75,9 @@ const state = {
 
 let isUiVisible = false;
 const SESSION_STORAGE_KEY = "logibooksSelectionState";
+const LAST_SELECTION_RECT_KEY = "lastSelectionRect";
 const sessionStore = typeof chrome !== "undefined" ? chrome.storage?.session : undefined;
+let lastSelectionRect = null;
 
 function snapshotState() {
   return {
@@ -126,6 +128,58 @@ async function initializeUiVisibility() {
   }
 }
 
+function normalizeRect(rect) {
+  if (!rect || typeof rect !== "object") return null;
+  const x = Math.round(Number(rect.x));
+  const y = Math.round(Number(rect.y));
+  const w = Math.round(Number(rect.w));
+  const h = Math.round(Number(rect.h));
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) {
+    return null;
+  }
+
+  if (x < 0 || y < 0 || w < 5 || h < 5) {
+    return null;
+  }
+
+  return { x, y, w, h };
+}
+
+async function initializeLastSelectionRect() {
+  try {
+    const result = await chrome.storage.local.get([LAST_SELECTION_RECT_KEY]);
+    const normalized = normalizeRect(result?.[LAST_SELECTION_RECT_KEY]);
+    lastSelectionRect = normalized;
+    if (!normalized && result?.[LAST_SELECTION_RECT_KEY] != null) {
+      await chrome.storage.local.remove([LAST_SELECTION_RECT_KEY]);
+    }
+  } catch {
+    // Ignore storage errors; last selection remains in memory/default null
+  }
+}
+
+async function saveLastSelectionRect(rect) {
+  const normalized = normalizeRect(rect);
+  if (!normalized) return null;
+
+  lastSelectionRect = normalized;
+  try {
+    await chrome.storage.local.set({ [LAST_SELECTION_RECT_KEY]: normalized });
+  } catch {
+    // Ignore persistence failures; in-memory fallback still works while SW lives
+  }
+  return normalized;
+}
+
+function buildShowUiMessage() {
+  const message = { type: "SHOW_UI", message: "Выберите область" };
+  if (lastSelectionRect) {
+    message.rect = lastSelectionRect;
+  }
+  return message;
+}
+
 // Save UI visibility state to storage
 async function saveUiVisibility(visible) {
   isUiVisible = visible;
@@ -136,10 +190,9 @@ async function saveUiVisibility(visible) {
   }
 }
 
-// Initialize on service worker startup
-initializeUiVisibility();
-
 void (async () => {
+  await initializeUiVisibility();
+  await initializeLastSelectionRect();
   await hydrateSessionState();
   if (state.status === "awaiting_selection" && typeof state.tabId === "number") {
     await syncUiState(state.tabId);
@@ -245,7 +298,7 @@ async function handleActivation(tabId, returnUrl, payload) {
     await navigate(tabId, payload.url); 
     await saveUiVisibility(true); 
     await setSessionState({ status: "awaiting_selection" }); 
-    await sendMessageWithRetry(tabId, { type: "SHOW_UI", message: "Выберите область" }); 
+    await sendMessageWithRetry(tabId, buildShowUiMessage()); 
   } catch (error) { 
     await reportError(error, tabId); 
   } 
@@ -256,14 +309,19 @@ async function handleSave(rect) {
     // STATE: awaiting_selection → uploading
     // User selected area, now processing and uploading screenshot
     await setSessionState({ status: "uploading" });
+
+    const normalizedRect = await saveLastSelectionRect(rect);
+    if (!normalizedRect) {
+      throw new Error("Некорректная область выделения");
+    }
     
     if (!state.tabId || !state.target) {
       throw new Error("Активная сессия не найдена");
     }
 
     const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: "png" });
-    const blob = await cropDataUrl(dataUrl, rect);
-    await apiUpload(state.target, rect, blob);
+    const blob = await cropDataUrl(dataUrl, normalizedRect);
+    await apiUpload(state.target, normalizedRect, blob);
     
     // STATE: uploading → idle (via finishSession)
     await finishSession();
@@ -283,13 +341,6 @@ async function handleExtensionSuspend() {
   await saveUiVisibility(false);
 
   try {
-    if (chrome?.storage?.local?.clear) {
-      await new Promise((resolve) => {
-        chrome.storage.local.clear(() => {
-          resolve();
-        });
-      });
-    }
     if (sessionStore?.clear) {
       await sessionStore.clear();
     }
@@ -322,8 +373,7 @@ async function handleActionClick(tab) {
 
   await saveUiVisibility(true);
   await sendMessageWithRetry(targetTabId, {
-    type: "SHOW_UI",
-    message: "Выберите область"
+    ...buildShowUiMessage()
   });
 }
 
@@ -380,10 +430,7 @@ async function syncUiState(tabId) {
     if (!isUiVisible) {
       await saveUiVisibility(true);
     }
-    await sendMessageWithRetry(tabId, {
-      type: "SHOW_UI",
-      message: "Выберите область"
-    });
+    await sendMessageWithRetry(tabId, buildShowUiMessage());
     return;
   }
 
@@ -535,6 +582,8 @@ if (isTestEnv && typeof globalThis !== "undefined") {
     state,
     handleActionClick,
     handleExtensionSuspend,
-    syncUiState
+    syncUiState,
+    normalizeRect,
+    saveLastSelectionRect
   };
 }
