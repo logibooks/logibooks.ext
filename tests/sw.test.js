@@ -164,6 +164,24 @@ describe("Service worker helpers", () => {
     );
   });
 
+  it("syncUiState includes the last saved selection rect", async () => {
+    sw.state.status = "awaiting_selection";
+    sw.state.tabId = 555;
+    await sw.saveLastSelectionRect({ x: 11, y: 22, w: 333, h: 444 });
+
+    global.chrome.tabs.sendMessage.mockClear();
+    await sw.syncUiState(555);
+
+    expect(global.chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      555,
+      expect.objectContaining({
+        type: "SHOW_UI",
+        rect: { x: 11, y: 22, w: 333, h: 444 }
+      }),
+      expect.any(Function)
+    );
+  });
+
   it("handleExtensionSuspend hides UI and resets state", async () => {
     sw.state.status = "awaiting_selection";
     sw.state.tabId = 321;
@@ -172,7 +190,6 @@ describe("Service worker helpers", () => {
     await sw.handleExtensionSuspend();
 
     expect(global.chrome.storage.local.set).toHaveBeenCalledWith({ isUiVisible: false });
-    expect(global.chrome.storage.local.clear).toHaveBeenCalled();
     expect(global.chrome.tabs.sendMessage).toHaveBeenCalledWith(
       321,
       expect.objectContaining({ type: "HIDE_UI" }),
@@ -189,7 +206,6 @@ describe("Service worker helpers", () => {
 
     await sw.handleExtensionSuspend();
 
-    expect(global.chrome.storage.local.clear).toHaveBeenCalled();
     expect(global.chrome.tabs.sendMessage).not.toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ type: "HIDE_UI" }),

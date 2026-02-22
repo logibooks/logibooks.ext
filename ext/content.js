@@ -52,8 +52,26 @@ function updateSelectionToggleButton() {
   selectionToggleButton.style.cursor = "pointer";
 }
 
-function activateSelectionMode({ forceRestart = false } = {}) {
-  startSelection({ forceRestart });
+function normalizeRect(rect) {
+  if (!rect || typeof rect !== "object") return null;
+  const x = Math.round(Number(rect.x));
+  const y = Math.round(Number(rect.y));
+  const w = Math.round(Number(rect.w));
+  const h = Math.round(Number(rect.h));
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) {
+    return null;
+  }
+
+  if (x < 0 || y < 0 || w < 5 || h < 5) {
+    return null;
+  }
+
+  return { x, y, w, h };
+}
+
+function activateSelectionMode({ forceRestart = false, preselectedRect = null } = {}) {
+  startSelection({ forceRestart, preselectedRect });
   updateSelectionToggleButton();
 }
 
@@ -308,15 +326,14 @@ function ensurePanel() {
   document.documentElement.appendChild(panel);
 }
 
-function showSelectionUI(message) {
+function showSelectionUI(message, restoredRect = null) {
   if (!panel) ensurePanel();
   
   statusLabel.textContent = message || "Выберите область";
   saveButton.style.display = "inline-flex";
   cancelButton.style.display = "inline-flex";
-  setSaveDisabled(!selectedRect);
   togglePanel(true);
-  activateSelectionMode({ forceRestart: true });
+  activateSelectionMode({ forceRestart: true, preselectedRect: restoredRect });
 }
 
 
@@ -353,7 +370,7 @@ function cleanupOverlay() {
   updateSelectionToggleButton();
 }
 
-function startSelection({ forceRestart = false } = {}) {
+function startSelection({ forceRestart = false, preselectedRect = null } = {}) {
   if (forceRestart && overlay) {
     cleanupOverlay();
   }
@@ -461,12 +478,48 @@ function startSelection({ forceRestart = false } = {}) {
   };
 
   document.addEventListener("mouseup", mouseupHandler);
+
+  const normalizedPreselectedRect = normalizeRect(preselectedRect);
+  if (normalizedPreselectedRect) {
+    const dpr = window.devicePixelRatio || 1;
+    const cssX = Math.round(normalizedPreselectedRect.x / dpr);
+    const cssY = Math.round(normalizedPreselectedRect.y / dpr);
+    const cssW = Math.round(normalizedPreselectedRect.w / dpr);
+    const cssH = Math.round(normalizedPreselectedRect.h / dpr);
+
+    const measuredViewportWidth = Math.max(window.innerWidth || 0, document.documentElement?.clientWidth || 0);
+    const measuredViewportHeight = Math.max(window.innerHeight || 0, document.documentElement?.clientHeight || 0);
+    const viewportWidth = measuredViewportWidth > 0 ? measuredViewportWidth : Math.max(cssX + cssW, 5);
+    const viewportHeight = measuredViewportHeight > 0 ? measuredViewportHeight : Math.max(cssY + cssH, 5);
+
+    const left = Math.max(0, Math.min(cssX, Math.max(0, viewportWidth - 1)));
+    const top = Math.max(0, Math.min(cssY, Math.max(0, viewportHeight - 1)));
+    const width = Math.max(0, Math.min(cssW, viewportWidth - left));
+    const height = Math.max(0, Math.min(cssH, viewportHeight - top));
+
+    if (width >= 5 && height >= 5) {
+      selectedRect = {
+        x: Math.round(left * dpr),
+        y: Math.round(top * dpr),
+        w: Math.round(width * dpr),
+        h: Math.round(height * dpr)
+      };
+      box.style.left = `${left}px`;
+      box.style.top = `${top}px`;
+      box.style.width = `${width}px`;
+      box.style.height = `${height}px`;
+      box.style.pointerEvents = "none";
+      overlay.style.cursor = "crosshair";
+      setSaveDisabled(false);
+    }
+  }
+
   updateSelectionToggleButton();
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "SHOW_UI") {
-    showSelectionUI(msg.message);
+    showSelectionUI(msg.message, msg.rect);
   }
 
   if (msg?.type === "SHOW_ERROR") {
