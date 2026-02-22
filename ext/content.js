@@ -55,11 +55,11 @@ function updateSelectionToggleButton() {
 function normalizeRect(rect) {
   if (!rect || typeof rect !== "object") return null;
   
-  // Explicitly validate that x/y/w/h are present and not null/"" before conversion
-  if (rect.x == null || rect.x === "" || 
-      rect.y == null || rect.y === "" || 
-      rect.w == null || rect.w === "" || 
-      rect.h == null || rect.h === "") {
+  // Explicitly validate that x/y/w/h are present and not null/undefined/"" before conversion
+  if (rect.x === null || rect.x === undefined || rect.x === "" || 
+      rect.y === null || rect.y === undefined || rect.y === "" || 
+      rect.w === null || rect.w === undefined || rect.w === "" || 
+      rect.h === null || rect.h === undefined || rect.h === "") {
     return null;
   }
   
