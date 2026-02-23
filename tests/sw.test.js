@@ -237,7 +237,7 @@ describe("Service worker helpers", () => {
         global.chrome.runtime.lastError = null;
         global.chrome.tabs.sendMessage = jest.fn((_tabId, _message, _callback) => {
           // Never call callback to simulate timeout
-          // The promise should resolve after CONTENT_SCRIPT_PING_TIMEOUT (2000ms)
+          // The promise should resolve after CONTENT_SCRIPT_PING_TIMEOUT
         });
 
         const start = Date.now();
@@ -245,9 +245,9 @@ describe("Service worker helpers", () => {
         const elapsed = Date.now() - start;
 
         expect(result).toBe(false);
-        // Should have waited approximately 2000ms (with some tolerance)
-        expect(elapsed).toBeGreaterThanOrEqual(1900);
-        expect(elapsed).toBeLessThan(2500);
+        // Should have waited approximately CONTENT_SCRIPT_PING_TIMEOUT (with some tolerance)
+        expect(elapsed).toBeGreaterThanOrEqual(sw.CONTENT_SCRIPT_PING_TIMEOUT - 100);
+        expect(elapsed).toBeLessThan(sw.CONTENT_SCRIPT_PING_TIMEOUT + 500);
       });
 
       it("returns false when chrome.runtime.lastError is set", async () => {
@@ -310,8 +310,8 @@ describe("Service worker helpers", () => {
         const result = await sw.waitForContentScriptReady(444);
 
         expect(result).toBe(false);
-        // Should attempt exactly 5 times (CONTENT_SCRIPT_MAX_PING_ATTEMPTS)
-        expect(callCount).toBe(5);
+        // Should attempt exactly CONTENT_SCRIPT_MAX_PING_ATTEMPTS times
+        expect(callCount).toBe(sw.CONTENT_SCRIPT_MAX_PING_ATTEMPTS);
       });
 
       it("returns true on second attempt after initial failure", async () => {
@@ -339,11 +339,11 @@ describe("Service worker helpers", () => {
         let callCount = 0;
         global.chrome.tabs.sendMessage = jest.fn((tabId, message, callback) => {
           callCount++;
-          if (callCount < 5) {
-            // First 4 attempts fail
+          if (callCount < sw.CONTENT_SCRIPT_MAX_PING_ATTEMPTS) {
+            // First (MAX-1) attempts fail
             callback(null);
           } else {
-            // 5th attempt succeeds
+            // Last attempt succeeds
             callback({ type: "PONG" });
           }
         });
@@ -351,7 +351,7 @@ describe("Service worker helpers", () => {
         const result = await sw.waitForContentScriptReady(666);
 
         expect(result).toBe(true);
-        expect(callCount).toBe(5);
+        expect(callCount).toBe(sw.CONTENT_SCRIPT_MAX_PING_ATTEMPTS);
       });
 
       it("waits between retry attempts", async () => {
@@ -371,11 +371,12 @@ describe("Service worker helpers", () => {
         await sw.waitForContentScriptReady(777);
         const elapsed = Date.now() - start;
 
-        // Should have 2 delays of 500ms between 3 attempts
-        // Total time should be roughly 1000ms (allowing some tolerance)
+        // Should have 2 delays of CONTENT_SCRIPT_PING_DELAY between 3 attempts
+        // Total time should be roughly 2 * CONTENT_SCRIPT_PING_DELAY (allowing some tolerance)
         expect(callCount).toBe(3);
-        expect(elapsed).toBeGreaterThanOrEqual(900);
-        expect(elapsed).toBeLessThan(1500);
+        const expectedDelay = 2 * sw.CONTENT_SCRIPT_PING_DELAY;
+        expect(elapsed).toBeGreaterThanOrEqual(expectedDelay - 100);
+        expect(elapsed).toBeLessThan(expectedDelay + 500);
       });
     });
 
@@ -387,16 +388,17 @@ describe("Service worker helpers", () => {
 
         const start = Date.now();
         await sw.injectContentScript(888);
-        const elapsed = Date.now() - start;
+        const elapsed = Date.now();
 
         expect(global.chrome.scripting.executeScript).toHaveBeenCalledWith({
           target: { tabId: 888 },
           files: ["content.js"]
         });
         
-        // Should wait approximately 300ms after injection
-        expect(elapsed).toBeGreaterThanOrEqual(250);
-        expect(elapsed).toBeLessThan(500);
+        // Production code has a hardcoded 300ms delay for content script initialization
+        // Verify the delay is approximately 300ms (with reasonable tolerance for test execution time)
+        expect(elapsed - start).toBeGreaterThanOrEqual(290);
+        expect(elapsed - start).toBeLessThan(500);
       });
 
       it("silently handles injection failure without throwing", async () => {
@@ -494,8 +496,8 @@ describe("Service worker helpers", () => {
         global.chrome.tabs.sendMessage = jest.fn((tabId, message, callback) => {
           if (message.type === "PING") {
             pingCallCount++;
-            if (pingCallCount <= 5) {
-              // First 5 pings fail (first waitForContentScriptReady)
+            if (pingCallCount <= sw.CONTENT_SCRIPT_MAX_PING_ATTEMPTS) {
+              // First MAX_PING_ATTEMPTS pings fail (first waitForContentScriptReady)
               callback(null);
             } else {
               // After injection, pings succeed

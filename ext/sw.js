@@ -657,6 +657,10 @@ if (isTestEnv && typeof globalThis !== "undefined") {
     pingContentScript,
     waitForContentScriptReady,
     injectContentScript,
-    handleActivation
+    handleActivation,
+    // Constants for test assertions
+    CONTENT_SCRIPT_PING_TIMEOUT,
+    CONTENT_SCRIPT_MAX_PING_ATTEMPTS,
+    CONTENT_SCRIPT_PING_DELAY
   };
 }
