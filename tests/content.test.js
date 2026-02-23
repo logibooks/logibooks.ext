@@ -9,10 +9,6 @@ let messageListener;
 
 describe("Content script UI", () => {
   beforeEach(async () => {
-    // Capture the message listener before clearing mocks
-    if (!messageListener && chrome.runtime.onMessage.addListener.mock.calls.length > 0) {
-      messageListener = chrome.runtime.onMessage.addListener.mock.calls[0][0];
-    }
     jest.clearAllMocks();
     // import module after mocks (setup.js provides document mocks)
     await import("../ext/content.js");
@@ -55,10 +51,9 @@ describe("Content script UI", () => {
 
     // Mock the sendResponse callback
     const sendResponse = jest.fn();
-    const sender = {};
 
-    // Send a PING message
-    const result = messageListener({ type: "PING" }, sender, sendResponse);
+    // Send a PING message (sender parameter required by listener signature but not used)
+    const result = messageListener({ type: "PING" }, {}, sendResponse);
 
     // Verify the response
     expect(sendResponse).toHaveBeenCalledWith({ type: "PONG", ready: true });
