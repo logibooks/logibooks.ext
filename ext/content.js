@@ -633,7 +633,7 @@ if (isTestEnv) {
     cleanupSelection,
     cleanupOverlay,
     showLoadingIndicator,
-    hideLoadingIndicator
+    hideLoadingIndicator,
     UI_SYNC_TIMEOUT
   };
 

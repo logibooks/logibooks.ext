@@ -18,6 +18,8 @@ describe("Content script UI", () => {
     // Clean up any existing loading indicator
     if (content.getLoadingIndicator()) {
       content.hideLoadingIndicator();
+    }
+    
     // Capture message listener from first import (module is cached after first load)
     // The listener is only registered once when the module loads
     if (!messageListener && chrome.runtime.onMessage.addListener.mock?.calls?.length > 0) {
@@ -56,7 +58,7 @@ describe("Content script UI", () => {
       expect(content.getLoadingIndicator()).toBeNull();
 
       // Track calls to appendChild
-      const appendChildSpy = jest.spyOn(document.documentElement, 'appendChild');
+      const appendChildSpy = jest.spyOn(document.documentElement, "appendChild");
 
       // Show loading indicator
       content.showLoadingIndicator();
@@ -80,7 +82,7 @@ describe("Content script UI", () => {
       // Verify the indicator's appendChild was called (for child elements)
       // Since appendChild is already a mock from createElement, we can check it was called
       expect(indicator.appendChild).toBeDefined();
-      expect(typeof indicator.appendChild).toBe('function');
+      expect(typeof indicator.appendChild).toBe("function");
     });
 
     it("properly removes and cleans up loading indicator", () => {
@@ -104,7 +106,7 @@ describe("Content script UI", () => {
 
     it("prevents creating multiple loading indicators on duplicate calls", () => {
       // Track calls to appendChild
-      const appendChildSpy = jest.spyOn(document.documentElement, 'appendChild');
+      const appendChildSpy = jest.spyOn(document.documentElement, "appendChild");
       
       // First call should create the indicator
       content.showLoadingIndicator();
@@ -154,6 +156,8 @@ describe("Content script UI", () => {
       // Should be a new indicator (not the same reference)
       expect(secondIndicator).not.toBe(firstIndicator);
     });
+  });
+
   it("responds to PING message with PONG and ready status", () => {
     // Verify the message listener was captured
     expect(messageListener).toBeDefined();
