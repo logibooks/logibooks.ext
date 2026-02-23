@@ -94,10 +94,24 @@ function deactivateSelectionMode({ resetSelection = false } = {}) {
 }
 
 function requestUiSync() {
+  // Show loading indicator while waiting for background response
+  showLoadingIndicator();
+  
+  // Set a timeout to hide the loading indicator if no response is received
+  // This prevents the indicator from staying visible indefinitely
+  loadingTimeoutId = setTimeout(() => {
+    hideLoadingIndicator();
+  }, UI_SYNC_TIMEOUT);
+  
   try {
-    chrome.runtime.sendMessage({ type: "UI_READY" });
-  } catch (error) {
-    console.error("Failed to request UI sync:", error);
+    chrome.runtime.sendMessage({ type: "UI_READY" }, () => {
+      // Hide loading if no response expected (e.g., not in active session)
+      if (chrome.runtime.lastError) {
+        hideLoadingIndicator();
+      }
+    });
+  } catch {
+    hideLoadingIndicator();
   }
 }
 
@@ -190,7 +204,7 @@ function ensurePanel() {
   // Inject UI styles (ui-main copy + extension overrides)
   try {
       // no ui-main.css injection: we copy required rules into extension-ui.css
-    } catch (err) {
+    } catch {
       // ignore
     }
 
@@ -226,13 +240,11 @@ function ensurePanel() {
     try {
       chrome.runtime.sendMessage({ type: "UI_CANCEL" }, () => {
         if (chrome.runtime.lastError) {
-          // Log the error and ensure the panel stays hidden locally.
-          console.error("Failed to send UI_CANCEL message:", chrome.runtime.lastError);
+          // Ensure the panel stays hidden locally on error.
           togglePanel(false);
         }
       });
-    } catch (error) {
-      console.error("Exception while sending UI_CANCEL message:", error);
+    } catch {
       togglePanel(false);
     }
   });
@@ -273,7 +285,7 @@ function ensurePanel() {
     // browser to repaint before the background captures the visible tab.
     try {
       cleanupOverlay();
-    } catch (e) {
+    } catch {
       // best-effort
     }
     togglePanel(false);
@@ -287,8 +299,8 @@ function ensurePanel() {
         raf(() => {
           try {
             chrome.runtime.sendMessage({ type: "UI_SAVE", rect: rectToSend });
-          } catch (err) {
-            console.error("Failed to send UI_SAVE message:", err);
+          } catch {
+            // Save failed silently; user can retry
           }
         });
       });
@@ -297,8 +309,8 @@ function ensurePanel() {
       setTimeout(() => {
         try {
           chrome.runtime.sendMessage({ type: "UI_SAVE", rect: rectToSend });
-        } catch (err) {
-          console.error("Failed to send UI_SAVE message:", err);
+        } catch {
+          // Save failed silently; user can retry
         }
       }, 150);
     }
@@ -318,8 +330,8 @@ function ensurePanel() {
     togglePanel(false);
     try {
       chrome.runtime.sendMessage({ type: "UI_CANCEL" });
-    } catch (error) {
-      console.error("Failed to send UI_CANCEL message:", error);
+    } catch {
+      // Cancel failed silently; UI is already hidden
     }
   });
 
@@ -526,15 +538,82 @@ function startSelection({ forceRestart = false, preselectedRect = null } = {}) {
   updateSelectionToggleButton();
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Handle ping for health check / readiness verification
+  if (msg?.type === "PING") {
+    sendResponse({ type: "PONG", ready: true });
+    return true;
+  }
+
   if (msg?.type === "SHOW_UI") {
+    hideLoadingIndicator();
     showSelectionUI(msg.message, msg.rect);
   }
 
   if (msg?.type === "SHOW_ERROR") {
+    hideLoadingIndicator();
     showError(msg.message);
   }
+  
+  if (msg?.type === "HIDE_UI") {
+    hideLoadingIndicator();
+  }
+
+  // Explicitly indicate that no asynchronous response will be sent
+  return false;
 });
+
+// Visual loading indicator for user feedback during activation
+let loadingIndicator = null;
+let loadingTimeoutId = null;
+
+// Timeout for loading indicator to prevent it from staying visible indefinitely
+// if the background script doesn't send a follow-up message
+const UI_SYNC_TIMEOUT = 3000;  // 3 seconds
+
+function showLoadingIndicator() {
+  if (loadingIndicator) return;
+  
+  loadingIndicator = document.createElement("div");
+  loadingIndicator.id = "logibooks-loading";
+  loadingIndicator.style.cssText = (
+    "position: fixed; top: 20px; right: 20px; z-index: 2147483647; " +
+    "background: #1976d2; color: white; padding: 12px 20px; " +
+    "border-radius: 8px; font-family: system-ui, sans-serif; font-size: 14px; " +
+    "box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 10px;"
+  );
+  
+  const spinner = document.createElement("div");
+  spinner.style.cssText = (
+    "width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); " +
+    "border-top-color: white; border-radius: 50%; " +
+    "animation: logibooks-spin 0.8s linear infinite;"
+  );
+  
+  const style = document.createElement("style");
+  style.textContent = "@keyframes logibooks-spin { to { transform: rotate(360deg); } }";
+  
+  const text = document.createElement("span");
+  text.textContent = "Logibooks загрузка...";
+  
+  loadingIndicator.appendChild(style);
+  loadingIndicator.appendChild(spinner);
+  loadingIndicator.appendChild(text);
+  document.documentElement.appendChild(loadingIndicator);
+}
+
+function hideLoadingIndicator() {
+  // Clear the timeout to prevent it from hiding the indicator after it's already hidden
+  if (loadingTimeoutId !== null) {
+    clearTimeout(loadingTimeoutId);
+    loadingTimeoutId = null;
+  }
+  
+  if (loadingIndicator) {
+    loadingIndicator.remove();
+    loadingIndicator = null;
+  }
+}
 
 requestUiSync();
 
@@ -552,19 +631,25 @@ if (isTestEnv) {
     showSelectionUI,
     showError,
     cleanupSelection,
-    cleanupOverlay
+    cleanupOverlay,
+    showLoadingIndicator,
+    hideLoadingIndicator,
+    UI_SYNC_TIMEOUT
   };
 
   // Expose selectedRect accessors for tests
   globalThis.__contentTestHooks__.getSelectedRect = () => selectedRect;
   globalThis.__contentTestHooks__.setSelectedRect = (r) => { selectedRect = r; };
 
+  // Expose loadingIndicator accessor for tests
+  globalThis.__contentTestHooks__.getLoadingIndicator = () => loadingIndicator;
+
   // Test helper: trigger save flow (as if user clicked Save)
   globalThis.__contentTestHooks__.triggerSave = (rect) => {
     if (rect) selectedRect = rect;
     // run the same steps as saveButton click
     const rectToSend = selectedRect;
-    try { cleanupOverlay(); } catch (e) {}
+    try { cleanupOverlay(); } catch {}
     togglePanel(false);
     const raf = typeof globalThis.requestAnimationFrame === "function" ? globalThis.requestAnimationFrame : null;
     if (raf) {
@@ -572,12 +657,12 @@ if (isTestEnv) {
         raf(() => {
           try {
             chrome.runtime.sendMessage({ type: "UI_SAVE", rect: rectToSend });
-          } catch (err) {}
+          } catch {}
         });
       });
     } else {
       setTimeout(() => {
-        try { chrome.runtime.sendMessage({ type: "UI_SAVE", rect: rectToSend }); } catch (err) {}
+        try { chrome.runtime.sendMessage({ type: "UI_SAVE", rect: rectToSend }); } catch {}
       }, 150);
     }
   };

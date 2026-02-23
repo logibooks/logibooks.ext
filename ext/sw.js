@@ -23,6 +23,12 @@ const UI_ORIGINS = new Set([
 
 const ALLOWED_TARGET_SUFFIXES = ["ozon.ru", "wildberries.ru"];
 
+// Activation reliability constants
+// Total worst-case wait: (1000ms * 4) + (300ms * 3) = ~5 seconds
+const CONTENT_SCRIPT_PING_TIMEOUT = 1000;  // 1 second per ping attempt
+const CONTENT_SCRIPT_MAX_PING_ATTEMPTS = 4; // Try pinging up to 4 times
+const CONTENT_SCRIPT_PING_DELAY = 300;     // Wait between ping attempts
+
 function isAllowedTarget(url) {
   try {
     const u = new URL(url);
@@ -295,13 +301,118 @@ async function handleActivation(tabId, returnUrl, payload) {
   const trimmedToken = typeof payload.token === "string" ? payload.token.trim() : null; 
   await setSessionState({ status: "navigating", tabId, returnUrl, targetUrl: payload.url, target: payload.target, token: trimmedToken }); 
   try { 
+    // Show loading badge while navigating and waiting for content script
+    await setBadgeLoading();
+    
     await navigate(tabId, payload.url); 
+    
+    // Wait for content script to be ready before showing UI
+    const isReady = await waitForContentScriptReady(tabId);
+    if (!isReady) {
+      // Try re-injecting content script as fallback
+      await injectContentScript(tabId);
+      const isReadyAfterInject = await waitForContentScriptReady(tabId);
+      if (!isReadyAfterInject) {
+        await setBadgeError();
+        throw new Error("Не удалось активировать расширение. Попробуйте обновить страницу.");
+      }
+    }
+    
+    // Clear badge on success
+    await clearBadge();
+    
     await saveUiVisibility(true); 
     await setSessionState({ status: "awaiting_selection" }); 
     await sendMessageWithRetry(tabId, buildShowUiMessage()); 
   } catch (error) { 
+    await setBadgeError();
     await reportError(error, tabId); 
   } 
+}
+
+/**
+ * Badge helpers for user feedback during activation.
+ * Shows visual indicator on extension icon.
+ */
+async function setBadgeLoading() {
+  try {
+    await chrome.action.setBadgeText({ text: "..." });
+    await chrome.action.setBadgeBackgroundColor({ color: "#1976d2" });
+  } catch {
+    // Badge API may not be available in all contexts
+  }
+}
+
+async function setBadgeError() {
+  try {
+    await chrome.action.setBadgeText({ text: "!" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#d32f2f" });
+    // Auto-clear error badge after 5 seconds
+    setTimeout(() => clearBadge(), 5000);
+  } catch {
+    // Badge API may not be available in all contexts
+  }
+}
+
+async function clearBadge() {
+  try {
+    await chrome.action.setBadgeText({ text: "" });
+  } catch {
+    // Badge API may not be available in all contexts
+  }
+}
+
+/**
+ * Ping the content script to verify it's loaded and responsive.
+ * Returns true if content script responds, false otherwise.
+ */
+function pingContentScript(tabId) {
+  return new Promise((resolve) => {
+    const timeoutId = setTimeout(() => resolve(false), CONTENT_SCRIPT_PING_TIMEOUT);
+    
+    chrome.tabs.sendMessage(tabId, { type: "PING" }, (response) => {
+      clearTimeout(timeoutId);
+      if (chrome.runtime.lastError) {
+        resolve(false);
+      } else {
+        resolve(response?.type === "PONG");
+      }
+    });
+  });
+}
+
+/**
+ * Wait for content script to become ready with multiple ping attempts.
+ * Returns true if content script is ready, false if all attempts fail.
+ */
+async function waitForContentScriptReady(tabId) {
+  for (let attempt = 0; attempt < CONTENT_SCRIPT_MAX_PING_ATTEMPTS; attempt++) {
+    const isReady = await pingContentScript(tabId);
+    if (isReady) {
+      return true;
+    }
+    if (attempt < CONTENT_SCRIPT_MAX_PING_ATTEMPTS - 1) {
+      await delay(CONTENT_SCRIPT_PING_DELAY);
+    }
+  }
+  return false;
+}
+
+/**
+ * Attempt to inject content script programmatically.
+ * Used as fallback when content script wasn't auto-injected.
+ */
+async function injectContentScript(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content.js"]
+    });
+    // Give content script time to initialize
+    await delay(300);
+  } catch {
+    // Injection may fail due to permissions; ignore and let caller handle
+  }
 }
 
 async function handleSave(rect) {
@@ -412,7 +523,6 @@ async function resetState() {
 async function reportError(error, tabId) {
   // STATE: any → idle (via resetState)
   // Error occurred, show error message and reset all session data
-  console.error(error);
   const message = error instanceof Error ? error.message : "Неизвестная ошибка";
   if (tabId !== null && tabId !== undefined) {
     await sendMessageWithRetry(tabId, { type: "SHOW_ERROR", message });
@@ -584,6 +694,14 @@ if (isTestEnv && typeof globalThis !== "undefined") {
     handleExtensionSuspend,
     syncUiState,
     normalizeRect,
-    saveLastSelectionRect
+    saveLastSelectionRect,
+    pingContentScript,
+    waitForContentScriptReady,
+    injectContentScript,
+    handleActivation,
+    // Constants for test assertions
+    CONTENT_SCRIPT_PING_TIMEOUT,
+    CONTENT_SCRIPT_MAX_PING_ATTEMPTS,
+    CONTENT_SCRIPT_PING_DELAY
   };
 }
