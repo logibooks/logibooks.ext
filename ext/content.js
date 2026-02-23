@@ -96,6 +96,13 @@ function deactivateSelectionMode({ resetSelection = false } = {}) {
 function requestUiSync() {
   // Show loading indicator while waiting for background response
   showLoadingIndicator();
+  
+  // Set a timeout to hide the loading indicator if no response is received
+  // This prevents the indicator from staying visible indefinitely
+  loadingTimeoutId = setTimeout(() => {
+    hideLoadingIndicator();
+  }, UI_SYNC_TIMEOUT);
+  
   try {
     chrome.runtime.sendMessage({ type: "UI_READY" }, () => {
       // Hide loading if no response expected (e.g., not in active session)
@@ -558,6 +565,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // Visual loading indicator for user feedback during activation
 let loadingIndicator = null;
+let loadingTimeoutId = null;
+
+// Timeout for loading indicator to prevent it from staying visible indefinitely
+// if the background script doesn't send a follow-up message
+const UI_SYNC_TIMEOUT = 3000;  // 3 seconds
 
 function showLoadingIndicator() {
   if (loadingIndicator) return;
@@ -591,6 +603,12 @@ function showLoadingIndicator() {
 }
 
 function hideLoadingIndicator() {
+  // Clear the timeout to prevent it from hiding the indicator after it's already hidden
+  if (loadingTimeoutId !== null) {
+    clearTimeout(loadingTimeoutId);
+    loadingTimeoutId = null;
+  }
+  
   if (loadingIndicator) {
     loadingIndicator.remove();
     loadingIndicator = null;
@@ -616,6 +634,7 @@ if (isTestEnv) {
     cleanupOverlay,
     showLoadingIndicator,
     hideLoadingIndicator
+    UI_SYNC_TIMEOUT
   };
 
   // Expose selectedRect accessors for tests
