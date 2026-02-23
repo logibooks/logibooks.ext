@@ -656,6 +656,7 @@ if (isTestEnv && typeof globalThis !== "undefined") {
     saveLastSelectionRect,
     pingContentScript,
     waitForContentScriptReady,
-    injectContentScript
+    injectContentScript,
+    handleActivation
   };
 }
