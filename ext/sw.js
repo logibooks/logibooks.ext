@@ -24,9 +24,10 @@ const UI_ORIGINS = new Set([
 const ALLOWED_TARGET_SUFFIXES = ["ozon.ru", "wildberries.ru"];
 
 // Activation reliability constants
-const CONTENT_SCRIPT_PING_TIMEOUT = 2000;  // 2 seconds per ping attempt
-const CONTENT_SCRIPT_MAX_PING_ATTEMPTS = 5; // Try pinging up to 5 times
-const CONTENT_SCRIPT_PING_DELAY = 500;     // Wait between ping attempts
+// Total worst-case wait: (1000ms * 4) + (300ms * 3) = ~5 seconds
+const CONTENT_SCRIPT_PING_TIMEOUT = 1000;  // 1 second per ping attempt
+const CONTENT_SCRIPT_MAX_PING_ATTEMPTS = 4; // Try pinging up to 4 times
+const CONTENT_SCRIPT_PING_DELAY = 300;     // Wait between ping attempts
 
 function isAllowedTarget(url) {
   try {
@@ -300,6 +301,9 @@ async function handleActivation(tabId, returnUrl, payload) {
   const trimmedToken = typeof payload.token === "string" ? payload.token.trim() : null; 
   await setSessionState({ status: "navigating", tabId, returnUrl, targetUrl: payload.url, target: payload.target, token: trimmedToken }); 
   try { 
+    // Show loading badge while navigating and waiting for content script
+    await setBadgeLoading();
+    
     await navigate(tabId, payload.url); 
     
     // Wait for content script to be ready before showing UI
@@ -309,16 +313,53 @@ async function handleActivation(tabId, returnUrl, payload) {
       await injectContentScript(tabId);
       const isReadyAfterInject = await waitForContentScriptReady(tabId);
       if (!isReadyAfterInject) {
+        await setBadgeError();
         throw new Error("Не удалось активировать расширение. Попробуйте обновить страницу.");
       }
     }
+    
+    // Clear badge on success
+    await clearBadge();
     
     await saveUiVisibility(true); 
     await setSessionState({ status: "awaiting_selection" }); 
     await sendMessageWithRetry(tabId, buildShowUiMessage()); 
   } catch (error) { 
+    await setBadgeError();
     await reportError(error, tabId); 
   } 
+}
+
+/**
+ * Badge helpers for user feedback during activation.
+ * Shows visual indicator on extension icon.
+ */
+async function setBadgeLoading() {
+  try {
+    await chrome.action.setBadgeText({ text: "..." });
+    await chrome.action.setBadgeBackgroundColor({ color: "#1976d2" });
+  } catch {
+    // Badge API may not be available in all contexts
+  }
+}
+
+async function setBadgeError() {
+  try {
+    await chrome.action.setBadgeText({ text: "!" });
+    await chrome.action.setBadgeBackgroundColor({ color: "#d32f2f" });
+    // Auto-clear error badge after 5 seconds
+    setTimeout(() => clearBadge(), 5000);
+  } catch {
+    // Badge API may not be available in all contexts
+  }
+}
+
+async function clearBadge() {
+  try {
+    await chrome.action.setBadgeText({ text: "" });
+  } catch {
+    // Badge API may not be available in all contexts
+  }
 }
 
 /**
