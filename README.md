@@ -1,6 +1,6 @@
 # Logibooks Techdoc Helper Extension
 [![ci](https://github.com/maxirmx/logibooks.ext/actions/workflows/ci.yml/badge.svg)](https://github.com/maxirmx/logibooks.ext/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/maxirmx/logibooks.ext/graph/badge.svg?token=8LfuBRVDwu)](https://codecov.io/gh/maxirmx/logibooks.ext)
+[![codecov](https://codecov.io/github/logibooks/logibooks.ext/graph/badge.svg?token=8LfuBRVDwu)](https://codecov.io/github/logibooks/logibooks.ext)
 
 Chrome Manifest V3 extension that:
 - follows URL requested by Logibooks UI application,
