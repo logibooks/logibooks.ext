@@ -13,6 +13,11 @@ describe("Content script UI", () => {
     await import("../ext/content.js");
     content = globalThis.__contentTestHooks__;
     if (!content) throw new Error("Content script test hooks were not registered");
+    
+    // Clean up any existing loading indicator
+    if (content.getLoadingIndicator()) {
+      content.hideLoadingIndicator();
+    }
   });
 
   it("ensurePanel creates elements and togglePanel shows/hides", () => {
@@ -38,6 +43,112 @@ describe("Content script UI", () => {
     content.showSelectionUI("Выберите область", rect);
 
     expect(content.getSelectedRect()).toEqual(rect);
+  });
+
+  describe("Loading indicator", () => {
+    it("creates loading indicator with correct styling and elements", () => {
+      // Initially, loading indicator should be null
+      expect(content.getLoadingIndicator()).toBeNull();
+
+      // Track calls to appendChild
+      const appendChildSpy = jest.spyOn(document.documentElement, 'appendChild');
+
+      // Show loading indicator
+      content.showLoadingIndicator();
+
+      // Verify loading indicator was created
+      const indicator = content.getLoadingIndicator();
+      expect(indicator).not.toBeNull();
+      expect(indicator.id).toBe("logibooks-loading");
+
+      // Verify styling is applied (note: colors may be normalized to rgb format)
+      expect(indicator.style.cssText).toContain("position: fixed");
+      expect(indicator.style.cssText).toContain("top: 20px");
+      expect(indicator.style.cssText).toContain("right: 20px");
+      expect(indicator.style.cssText).toContain("z-index: 2147483647");
+      expect(indicator.style.cssText).toContain("background");
+      expect(indicator.style.cssText).toContain("color: white");
+
+      // Verify appendChild was called with the indicator
+      expect(appendChildSpy).toHaveBeenCalledWith(indicator);
+
+      // Verify the indicator's appendChild was called (for child elements)
+      // Since appendChild is already a mock from createElement, we can check it was called
+      expect(indicator.appendChild).toBeDefined();
+      expect(typeof indicator.appendChild).toBe('function');
+    });
+
+    it("properly removes and cleans up loading indicator", () => {
+      // Show loading indicator first
+      content.showLoadingIndicator();
+      const indicator = content.getLoadingIndicator();
+      expect(indicator).not.toBeNull();
+
+      // Mock the remove method to track calls
+      const removeSpy = jest.spyOn(indicator, "remove");
+
+      // Hide loading indicator
+      content.hideLoadingIndicator();
+
+      // Verify remove was called
+      expect(removeSpy).toHaveBeenCalledTimes(1);
+
+      // Verify loading indicator is now null
+      expect(content.getLoadingIndicator()).toBeNull();
+    });
+
+    it("prevents creating multiple loading indicators on duplicate calls", () => {
+      // Track calls to appendChild
+      const appendChildSpy = jest.spyOn(document.documentElement, 'appendChild');
+      
+      // First call should create the indicator
+      content.showLoadingIndicator();
+      const firstIndicator = content.getLoadingIndicator();
+      expect(firstIndicator).not.toBeNull();
+
+      // Get the call count after first creation
+      const firstCallCount = appendChildSpy.mock.calls.length;
+      expect(firstCallCount).toBe(1);
+
+      // Second call should not create another indicator
+      content.showLoadingIndicator();
+      const secondIndicator = content.getLoadingIndicator();
+
+      // Should be the same indicator
+      expect(secondIndicator).toBe(firstIndicator);
+
+      // appendChild should not have been called again
+      const secondCallCount = appendChildSpy.mock.calls.length;
+      expect(secondCallCount).toBe(firstCallCount);
+    });
+
+    it("handles hiding loading indicator when none exists", () => {
+      // Verify no indicator exists
+      expect(content.getLoadingIndicator()).toBeNull();
+
+      // Hiding should not throw an error
+      expect(() => content.hideLoadingIndicator()).not.toThrow();
+
+      // Still should be null
+      expect(content.getLoadingIndicator()).toBeNull();
+    });
+
+    it("can show loading indicator again after hiding", () => {
+      // Show, hide, show again
+      content.showLoadingIndicator();
+      const firstIndicator = content.getLoadingIndicator();
+      expect(firstIndicator).not.toBeNull();
+
+      content.hideLoadingIndicator();
+      expect(content.getLoadingIndicator()).toBeNull();
+
+      content.showLoadingIndicator();
+      const secondIndicator = content.getLoadingIndicator();
+      expect(secondIndicator).not.toBeNull();
+
+      // Should be a new indicator (not the same reference)
+      expect(secondIndicator).not.toBe(firstIndicator);
+    });
   });
 
 });
