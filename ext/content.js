@@ -551,6 +551,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "HIDE_UI") {
     hideLoadingIndicator();
   }
+
+  // Explicitly indicate that no asynchronous response will be sent
+  return false;
 });
 
 // Visual loading indicator for user feedback during activation
