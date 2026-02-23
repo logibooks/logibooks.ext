@@ -235,7 +235,7 @@ describe("Service worker helpers", () => {
 
       it("returns false when content script does not respond within timeout", async () => {
         global.chrome.runtime.lastError = null;
-        global.chrome.tabs.sendMessage = jest.fn((tabId, message, callback) => {
+        global.chrome.tabs.sendMessage = jest.fn((_tabId, _message, _callback) => {
           // Never call callback to simulate timeout
           // The promise should resolve after CONTENT_SCRIPT_PING_TIMEOUT (2000ms)
         });
