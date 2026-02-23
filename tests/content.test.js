@@ -14,8 +14,9 @@ describe("Content script UI", () => {
     await import("../ext/content.js");
     content = globalThis.__contentTestHooks__;
     if (!content) throw new Error("Content script test hooks were not registered");
-    // Capture message listener on first import
-    if (!messageListener && chrome.runtime.onMessage.addListener.mock.calls.length > 0) {
+    // Capture message listener from first import (module is cached after first load)
+    // The listener is only registered once when the module loads
+    if (!messageListener && chrome.runtime.onMessage.addListener.mock?.calls?.length > 0) {
       messageListener = chrome.runtime.onMessage.addListener.mock.calls[0][0];
     }
   });
