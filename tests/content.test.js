@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 
 let content;
+let messageListener;
 
 describe("Content script UI", () => {
   beforeEach(async () => {
@@ -17,6 +18,10 @@ describe("Content script UI", () => {
     // Clean up any existing loading indicator
     if (content.getLoadingIndicator()) {
       content.hideLoadingIndicator();
+    // Capture message listener from first import (module is cached after first load)
+    // The listener is only registered once when the module loads
+    if (!messageListener && chrome.runtime.onMessage.addListener.mock?.calls?.length > 0) {
+      messageListener = chrome.runtime.onMessage.addListener.mock.calls[0][0];
     }
   });
 
@@ -149,6 +154,20 @@ describe("Content script UI", () => {
       // Should be a new indicator (not the same reference)
       expect(secondIndicator).not.toBe(firstIndicator);
     });
+  it("responds to PING message with PONG and ready status", () => {
+    // Verify the message listener was captured
+    expect(messageListener).toBeDefined();
+
+    // Mock the sendResponse callback
+    const sendResponse = jest.fn();
+
+    // Send a PING message (sender parameter required by listener signature but not used)
+    const result = messageListener({ type: "PING" }, {}, sendResponse);
+
+    // Verify the response
+    expect(sendResponse).toHaveBeenCalledWith({ type: "PONG", ready: true });
+    // Verify it returns true to indicate async response
+    expect(result).toBe(true);
   });
 
 });
