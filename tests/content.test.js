@@ -5,14 +5,23 @@
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
 
 let content;
+let messageListener;
 
 describe("Content script UI", () => {
   beforeEach(async () => {
+    // Capture the message listener before clearing mocks
+    if (!messageListener && chrome.runtime.onMessage.addListener.mock.calls.length > 0) {
+      messageListener = chrome.runtime.onMessage.addListener.mock.calls[0][0];
+    }
     jest.clearAllMocks();
     // import module after mocks (setup.js provides document mocks)
     await import("../ext/content.js");
     content = globalThis.__contentTestHooks__;
     if (!content) throw new Error("Content script test hooks were not registered");
+    // Capture message listener on first import
+    if (!messageListener && chrome.runtime.onMessage.addListener.mock.calls.length > 0) {
+      messageListener = chrome.runtime.onMessage.addListener.mock.calls[0][0];
+    }
   });
 
   it("ensurePanel creates elements and togglePanel shows/hides", () => {
@@ -38,6 +47,23 @@ describe("Content script UI", () => {
     content.showSelectionUI("Выберите область", rect);
 
     expect(content.getSelectedRect()).toEqual(rect);
+  });
+
+  it("responds to PING message with PONG and ready status", () => {
+    // Verify the message listener was captured
+    expect(messageListener).toBeDefined();
+
+    // Mock the sendResponse callback
+    const sendResponse = jest.fn();
+    const sender = {};
+
+    // Send a PING message
+    const result = messageListener({ type: "PING" }, sender, sendResponse);
+
+    // Verify the response
+    expect(sendResponse).toHaveBeenCalledWith({ type: "PONG", ready: true });
+    // Verify it returns true to indicate async response
+    expect(result).toBe(true);
   });
 
 });
