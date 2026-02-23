@@ -632,12 +632,17 @@ if (isTestEnv) {
     showError,
     cleanupSelection,
     cleanupOverlay,
+    showLoadingIndicator,
+    hideLoadingIndicator,
     UI_SYNC_TIMEOUT
   };
 
   // Expose selectedRect accessors for tests
   globalThis.__contentTestHooks__.getSelectedRect = () => selectedRect;
   globalThis.__contentTestHooks__.setSelectedRect = (r) => { selectedRect = r; };
+
+  // Expose loadingIndicator accessor for tests
+  globalThis.__contentTestHooks__.getLoadingIndicator = () => loadingIndicator;
 
   // Test helper: trigger save flow (as if user clicked Save)
   globalThis.__contentTestHooks__.triggerSave = (rect) => {
