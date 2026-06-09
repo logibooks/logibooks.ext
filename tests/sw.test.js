@@ -80,14 +80,18 @@ describe("Service worker helpers", () => {
   });
 
   describe("isAllowedActivator", () => {
-    it("accepts only exact origins listed in UI_ORIGINS and rejects others", () => {
-      // origin must match exactly including scheme and port
+    it("accepts trusted UI host suffixes and localhost while rejecting others", () => {
       expect(sw.isAllowedActivator("https://logibooks.sw.consulting/page")).toBe(true);
       expect(sw.isAllowedActivator("https://logibooks.sw.consulting")).toBe(true);
       expect(sw.isAllowedActivator("https://logibooks.sw.consulting:8080/page")).toBe(true);
+      expect(sw.isAllowedActivator("https://support.sw.consulting/page")).toBe(true);
+      expect(sw.isAllowedActivator("https://app.gtc.express/page")).toBe(true);
+      expect(sw.isAllowedActivator("https://app.gtc.express:8443/page")).toBe(true);
       expect(sw.isAllowedActivator("http://localhost/")).toBe(true);
       expect(sw.isAllowedActivator("http://localhost:5177/some/path")).toBe(true);
       expect(sw.isAllowedActivator("http://localhost:3000/" )).toBe(true);
+      expect(sw.isAllowedActivator("http://app.gtc.express/page")).toBe(false);
+      expect(sw.isAllowedActivator("https://app.gtc.express.evil.example")).toBe(false);
       expect(sw.isAllowedActivator("https://evil.example.com" )).toBe(false);
     });
 

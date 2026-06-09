@@ -25,7 +25,8 @@
    "content_scripts": [
      {
        "matches": [
-         "https://logibooks.sw.consulting/*",
+         "https://*.sw.consulting/*",
+         "https://*.gtc.express/*",
          "http://localhost/*",
          "https://*.ozon.ru/*",
          "https://*.wildberries.ru/*"

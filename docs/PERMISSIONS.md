@@ -22,7 +22,8 @@ This document describes why each permission requested by the extension is requir
 
 ## Host Permissions
 
-- `https://logibooks.sw.consulting/*`
+- `https://*.sw.consulting/*`
+- `https://*.gtc.express/*`
 - `http://localhost/*`
 - `https://*.ozon.ru/*`
 - `https://*.wildberries.ru/*`
