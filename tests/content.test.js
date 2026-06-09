@@ -3,6 +3,7 @@
 // This file is a part of Logibooks techdoc helper extension 
 
 import { describe, it, expect, beforeEach, jest } from "@jest/globals";
+import { URL as NodeURL } from "url";
 
 let content;
 let messageListener;
@@ -50,6 +51,21 @@ describe("Content script UI", () => {
     content.showSelectionUI("Выберите область", rect);
 
     expect(content.getSelectedRect()).toEqual(rect);
+  });
+
+  it("allows trusted UI origins and rejects lookalike domains", () => {
+    const previousUrl = global.URL;
+    global.URL = NodeURL;
+    try {
+      expect(content.isAllowedUiOrigin("https://logibooks.sw.consulting")).toBe(true);
+      expect(content.isAllowedUiOrigin("https://app.gtc.express")).toBe(true);
+      expect(content.isAllowedUiOrigin("https://app.gtc.express:8443")).toBe(true);
+      expect(content.isAllowedUiOrigin("http://localhost:5177")).toBe(true);
+      expect(content.isAllowedUiOrigin("http://app.gtc.express")).toBe(false);
+      expect(content.isAllowedUiOrigin("https://app.gtc.express.evil.example")).toBe(false);
+    } finally {
+      global.URL = previousUrl;
+    }
   });
 
   describe("Loading indicator", () => {

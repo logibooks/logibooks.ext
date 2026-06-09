@@ -42,7 +42,7 @@ The Extension helps authorized host pages create screenshots of a user-selected 
 
 ## 9. Permissions Explanation
 
-- The extension requests `tabs`, `scripting`, `storage`, and `webNavigation` to support the features described above. Host permissions (e.g., `http://localhost/*`, `https://logibooks.sw.consulting/*`, `https://*.ozon.ru/*`, `https://*.wildberries.ru/*`) are required for the extension to inject UI into target pages and perform uploads.
+- The extension requests `tabs`, `scripting`, `storage`, and `webNavigation` to support the features described above. Host permissions (e.g., `http://localhost/*`, `https://*.sw.consulting/*`, `https://*.gtc.express/*`, `https://*.ozon.ru/*`, `https://*.wildberries.ru/*`) are required for the extension to inject UI into target pages and perform uploads.
 
 ## 10. Children
 

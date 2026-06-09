@@ -16,10 +16,8 @@
 // making it impossible for the screenshot interface to appear on the target page.
 // This service worker handles the persistent storage (chrome.storage.local) and navigation logic. 
 
-const UI_ORIGINS = new Set([
-  "https://logibooks.sw.consulting",
-  "http://localhost"
-]);
+const UI_HOST_SUFFIXES = ["sw.consulting", "gtc.express"];
+const UI_LOCAL_ORIGINS = new Set(["http://localhost"]);
 
 const ALLOWED_TARGET_SUFFIXES = ["ozon.ru", "wildberries.ru"];
 
@@ -43,12 +41,13 @@ function isAllowedTarget(url) {
 function isAllowedActivator(returnUrl) {
   try {
     const u = new URL(returnUrl);
-    // direct exact-origin match first
-    if (UI_ORIGINS.has(u.origin)) return true;
     // allow matching scheme + hostname ignoring port for entries like http://localhost
     const originNoPort = `${u.protocol}//${u.hostname}`;
-    if (UI_ORIGINS.has(originNoPort)) return true;
-    return false;
+    if (UI_LOCAL_ORIGINS.has(u.origin) || UI_LOCAL_ORIGINS.has(originNoPort)) return true;
+    if (u.protocol !== "https:") return false;
+
+    const h = u.hostname.toLowerCase();
+    return UI_HOST_SUFFIXES.some((d) => h === d || h.endsWith("." + d));
   } catch {
     return false;
   }

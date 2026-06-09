@@ -22,11 +22,26 @@ let statusLabel;
 let closeButton;
 let selectionToggleButton;
 
-// Allowed UI origins (prod + dev). Only these can activate the workflow.
-const LOGIBOOKS_UI_ORIGINS = new Set([
-  "https://logibooks.sw.consulting",
-  "http://localhost"
-]);
+// Allowed UI hosts (prod + dev). Only these can activate the workflow.
+const LOGIBOOKS_UI_HOST_SUFFIXES = ["sw.consulting", "gtc.express"];
+const LOGIBOOKS_LOCAL_UI_ORIGINS = new Set(["http://localhost"]);
+
+function isAllowedUiOrigin(origin) {
+  try {
+    const originUrl = new URL(origin);
+    // allow scheme+hostname matches (ignore port) for configured local origins
+    const originNoPort = `${originUrl.protocol}//${originUrl.hostname}`;
+    if (LOGIBOOKS_LOCAL_UI_ORIGINS.has(originUrl.origin) || LOGIBOOKS_LOCAL_UI_ORIGINS.has(originNoPort)) {
+      return true;
+    }
+    if (originUrl.protocol !== "https:") return false;
+
+    const hostname = originUrl.hostname.toLowerCase();
+    return LOGIBOOKS_UI_HOST_SUFFIXES.some((d) => hostname === d || hostname.endsWith("." + d));
+  } catch {
+    return false;
+  }
+}
 
 const SPA_NAV_EVENT = "logibooks:navigation";
 let spaHooksInstalled = false;
@@ -149,17 +164,7 @@ function installSpaNavigationHooks() {
 // Handle messages from the page for presence queries and activation
 window.addEventListener("message", (event) => {
   if (!event || event.source !== window || !event.data) return;
-  try {
-    const originUrl = new URL(event.origin);
-    // allow exact origin match
-    if (!LOGIBOOKS_UI_ORIGINS.has(event.origin)) {
-      // allow scheme+hostname matches (ignore port) for configured origins
-      const originNoPort = `${originUrl.protocol}//${originUrl.hostname}`;
-      if (!LOGIBOOKS_UI_ORIGINS.has(originNoPort)) return;
-    }
-  } catch {
-    return;
-  }
+  if (!isAllowedUiOrigin(event.origin)) return;
 
   const payload = event.data;
 
@@ -632,6 +637,7 @@ if (isTestEnv) {
     showError,
     cleanupSelection,
     cleanupOverlay,
+    isAllowedUiOrigin,
     showLoadingIndicator,
     hideLoadingIndicator,
     UI_SYNC_TIMEOUT
